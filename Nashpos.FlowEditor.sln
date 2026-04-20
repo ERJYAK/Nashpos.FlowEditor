@@ -1,0 +1,16 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Nashpos.FlowEditor", "Nashpos.FlowEditor\Nashpos.FlowEditor.csproj", "{8AC34418-8BA0-4334-BD62-E4D2C15E9F05}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8AC34418-8BA0-4334-BD62-E4D2C15E9F05}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8AC34418-8BA0-4334-BD62-E4D2C15E9F05}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8AC34418-8BA0-4334-BD62-E4D2C15E9F05}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8AC34418-8BA0-4334-BD62-E4D2C15E9F05}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
