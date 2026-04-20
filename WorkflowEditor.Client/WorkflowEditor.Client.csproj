@@ -6,4 +6,9 @@
         <Nullable>enable</Nullable>
     </PropertyGroup>
 
+    <ItemGroup>
+      <Folder Include="Diagram\Nodes\" />
+      <Folder Include="Diagram\Ports\" />
+    </ItemGroup>
+
 </Project>
