@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace WorkflowEditor.Core.Models.Steps;
 
 // Узел-ссылка на другой холст (твой кастомный subflow)
-public class SubflowStep : WorkflowStep
+public record SubflowStep : WorkflowStep
 {
     [JsonPropertyName("subflowId")]
     public string SubflowId { get; set; } = string.Empty; 

@@ -1,9 +1,28 @@
-namespace WorkflowEditor.Api;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using WorkflowEditor.Api.Services;
 
-public static class Program
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddGrpc();
+
+// Настраиваем CORS для gRPC-Web
+builder.Services.AddCors(o => o.AddPolicy("AllowAll", corsBuilder =>
 {
-    private static void Main()
-    {
-        
-    }
-}
+    corsBuilder.AllowAnyOrigin()
+        .AllowAnyMethod()
+        .AllowAnyHeader()
+        .WithExposedHeaders("Grpc-Status", "Grpc-Message", "Grpc-Encoding", "Grpc-Accept-Encoding");
+}));
+
+var app = builder.Build();
+
+app.UseCors("AllowAll");
+
+app.UseGrpcWeb();
+
+app.MapGrpcService<WorkflowStorageService>().EnableGrpcWeb();
+
+app.MapGet("/", () => "gRPC Server is running.");
+
+app.Run();

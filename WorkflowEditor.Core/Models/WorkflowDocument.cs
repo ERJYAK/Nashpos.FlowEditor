@@ -2,7 +2,7 @@ namespace WorkflowEditor.Core.Models;
 
 using System.Text.Json.Serialization;
 
-public class WorkflowDocument
+public record WorkflowDocument
 {
     [JsonPropertyName("workflowId")]
     public string WorkflowId { get; init; } = Guid.NewGuid().ToString();
@@ -11,8 +11,8 @@ public class WorkflowDocument
     public string Name { get; set; } = string.Empty;
 
     [JsonPropertyName("steps")]
-    public List<WorkflowStep> Steps { get; set; } = new();
+    public List<WorkflowStep> Steps { get; init; } = new();
 
     [JsonPropertyName("links")]
-    public List<WorkflowLink> Links { get; set; } = new();
+    public List<WorkflowLink> Links { get; init; } = new();
 }

@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 public record CanvasPosition(double X, double Y);
 
 // Описание связи между узлами
-public class WorkflowLink
+public record WorkflowLink
 {
     [JsonPropertyName("id")]
     public string Id { get; init; } = Guid.NewGuid().ToString(); // init для неизменяемости после создания

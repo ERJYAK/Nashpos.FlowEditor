@@ -6,7 +6,7 @@ using WorkflowEditor.Core.Models.Steps;
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(SubflowStep), typeDiscriminator: "subflow")]
 // Сюда будем добавлять новые типы узлов
-public abstract class WorkflowStep
+public abstract record WorkflowStep
 {
     [JsonPropertyName("id")]
     public string Id { get; init; } = Guid.NewGuid().ToString();

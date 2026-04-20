@@ -7,7 +7,13 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="Grpc.AspNetCore" Version="2.80.0-pre1" />
+        <PackageReference Include="Grpc.AspNetCore.Web" Version="2.80.0-pre1" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.3"/>
     </ItemGroup>
 
+    <ItemGroup>
+        <Protobuf Include="Protos\workflow.proto" GrpcServices="Server" />
+    </ItemGroup>
+    
 </Project>

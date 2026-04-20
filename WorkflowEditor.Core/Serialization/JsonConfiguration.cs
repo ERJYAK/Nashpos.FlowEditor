@@ -3,7 +3,7 @@ namespace WorkflowEditor.Core.Serialization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-public static class JsonConfigurationL
+public static class JsonConfiguration
 {
     public static JsonSerializerOptions GetOptions()
     {

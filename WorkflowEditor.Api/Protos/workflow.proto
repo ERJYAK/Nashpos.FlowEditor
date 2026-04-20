@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package workfloweditor;
+
+// Задаем namespace, который будет использоваться при генерации C# классов
+option csharp_namespace = "WorkflowEditor.Contracts.Grpc";
+
+service WorkflowStorage {
+  rpc GetWorkflow (GetWorkflowRequest) returns (WorkflowDocumentResponse);
+  rpc SaveWorkflow (SaveWorkflowRequest) returns (SaveWorkflowResponse);
+}
+
+message GetWorkflowRequest {
+  string workflow_id = 1;
+}
+
+message WorkflowDocumentResponse {
+  string workflow_id = 1;
+  string name = 2;
+  string json_payload = 3;
+}
+
+message SaveWorkflowRequest {
+  string workflow_id = 1;
+  string name = 2;
+  string json_payload = 3;
+}
+
+message SaveWorkflowResponse {
+  bool success = 1;
+  string error_message = 2;
+}
