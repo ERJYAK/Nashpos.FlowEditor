@@ -1,6 +1,8 @@
 @inherits Fluxor.Blazor.Web.Components.FluxorComponent
+@implements IDisposable
 @using Blazor.Diagrams
 @using Blazor.Diagrams.Components
+@using Blazor.Diagrams.Core.Anchors
 @using Fluxor
 @using WorkflowEditor.Client.Diagram.Nodes
 @using WorkflowEditor.Client.Store.Editor
@@ -9,7 +11,30 @@
 @using WorkflowEditor.Client.Components.Nodes
 @using WorkflowEditor.Core.Models.Steps
 
-<div class="canvas-wrapper" style="width: 100%; height: 100%;">
+<style>
+    /* Глобальные стили для портов, обходящие CSS-изоляцию */
+    .port {
+        width: 16px;
+        height: 16px;
+        background-color: #3267ff;
+        border: 2px solid #1e1e1e;
+        border-radius: 50%;
+        position: absolute;
+        cursor: crosshair;
+        z-index: 10;
+        transition: transform 0.1s ease-in-out;
+    }
+    .port:hover {
+        background-color: #ff4081;
+        transform: scale(1.3);
+    }
+    .port.left { top: 50%; left: -8px; transform: translateY(-50%); }
+    .port.right { top: 50%; right: -8px; transform: translateY(-50%); }
+    .port.top { left: 50%; top: -8px; transform: translateX(-50%); }
+    .port.bottom { left: 50%; bottom: -8px; transform: translateX(-50%); }
+</style>
+
+<div class="canvas-wrapper default-theme" style="width: 100%; height: 100%;">
     <CascadingValue Value="Diagram">
         <DiagramCanvas></DiagramCanvas>
     </CascadingValue>
@@ -18,66 +43,178 @@
 @code {
     [Inject] private IState<EditorState> State { get; set; } = null!;
     [Inject] private IDispatcher Dispatcher { get; set; } = null!;
-
     [Parameter] public string WorkflowId { get; set; } = string.Empty;
 
     private BlazorDiagram Diagram { get; set; } = new BlazorDiagram();
-    private bool _isSyncing = false;
+    
+    // Флаг для защиты от рекурсивных вызовов
+    private bool _isSyncing = false; 
 
     protected override void OnInitialized()
     {
         base.OnInitialized();
-
-        State.StateChanged += (sender, args) => SyncStateToDiagram();
+        // Используем именованный делегат, чтобы отписка сработала корректно
+        State.StateChanged += OnStateChanged;
         
-        // Регистрируем маппинг: Модель -> Виджет
         Diagram.RegisterComponent<SubflowNodeModel, SubflowNodeWidget>();
-
-        // Подписываемся на события движка (Снизу-Вверх: UI -> Fluxor)
+        Diagram.RegisterComponent<BaseNodeModel, BaseNodeWidget>();
+        
         Diagram.PointerUp += OnDiagramPointerUp;
-    }
-
-    protected override void OnParametersSet()
-    {
-        base.OnParametersSet();
-        // Синхронизируем данные при смене активной вкладки/стейта (Сверху-Вниз: Fluxor -> UI)
+        Diagram.Links.Added += OnLinkAdded;
+        Diagram.Links.Removed += OnLinkRemoved;
+        
         SyncStateToDiagram();
     }
+
+    private void OnStateChanged(object? sender, EventArgs args) => SyncStateToDiagram();
 
     private void SyncStateToDiagram()
     {
         if (!State.Value.OpenDocuments.TryGetValue(WorkflowId, out var document)) return;
+        if (_isSyncing) return;
 
-        if (Diagram.Nodes.Count == document.Steps.Count) return;
-        
         _isSyncing = true;
         InvokeAsync(() => 
         {
-            Diagram.Nodes.Clear();
+            // 1. Синхронизация узлов
+            var nodesToRemove = Diagram.Nodes.OfType<WorkflowNodeModel>()
+                .Where(n => document.Steps.All(s => s.Id != n.StepId)).ToList();
+            Diagram.Nodes.Remove(nodesToRemove);
+
             foreach (var step in document.Steps)
             {
-                if (step is SubflowStep subflowStep)
+                var existingNode = Diagram.Nodes.OfType<WorkflowNodeModel>().FirstOrDefault(n => n.StepId == step.Id);
+                if (existingNode == null)
                 {
-                    Diagram.Nodes.Add(new SubflowNodeModel(subflowStep));
+                    if (step is SubflowStep subflow) existingNode = new SubflowNodeModel(subflow);
+                    else if (step is BaseStep task) existingNode = new BaseNodeModel(task);
+                    
+                    if (existingNode != null) Diagram.Nodes.Add(existingNode);
+                }
+
+                // ПРИНУДИТЕЛЬНАЯ СИНХРОНИЗАЦИЯ КООРДИНАТ
+                // Переопределяем возможные глюки JS Interop координатами из Source of Truth
+                if (existingNode != null)
+                {
+                    existingNode.SetPosition(step.Position.X, step.Position.Y);
                 }
             }
-            StateHasChanged(); // Принудительно уведомляем Blazor
+
+            // 2. Синхронизация линков
+            // Удаляем линки, которых нет в стейте (используем метод-сопоставитель)
+            var linksToRemove = Diagram.Links
+                .Where(l => l.Target is SinglePortAnchor && !document.Links.Any(dl => MatchLink(l, dl))).ToList();
+            Diagram.Links.Remove(linksToRemove);
+
+            foreach (var link in document.Links)
+            {
+                // Если линк с такими же портами уже есть на холсте, пропускаем
+                if (Diagram.Links.Any(l => MatchLink(l, link))) continue;
+
+                var sourceNode = Diagram.Nodes.OfType<WorkflowNodeModel>().FirstOrDefault(n => n.StepId == link.SourceNodeId);
+                var targetNode = Diagram.Nodes.OfType<WorkflowNodeModel>().FirstOrDefault(n => n.StepId == link.TargetNodeId);
+
+                if (sourceNode != null && targetNode != null)
+                {
+                    var sourcePort = sourceNode.Ports.FirstOrDefault(p => p.Alignment.ToString() == link.SourcePortId);
+                    var targetPort = targetNode.Ports.FirstOrDefault(p => p.Alignment.ToString() == link.TargetPortId);
+
+                    if (sourcePort != null && targetPort != null)
+                    {
+                        // Создаем линк без жесткой привязки ID
+                        var diagramLink = new Blazor.Diagrams.Core.Models.LinkModel(sourcePort, targetPort);
+                        Diagram.Links.Add(diagramLink);
+                    }
+                }
+            }
+
+            StateHasChanged();
+            _isSyncing = false;
         });
-        _isSyncing = false;
     }
-    
+
+    // Вспомогательный метод для матчинга линков движка с контрактами Fluxor
+    private bool MatchLink(Blazor.Diagrams.Core.Models.Base.BaseLinkModel diagramLink, WorkflowLink stateLink)
+    {
+        // В 3.x Source и Target - это Anchors. Приводим их к порту.
+        var sourcePort = (diagramLink.Source as SinglePortAnchor)?.Port;
+        var targetPort = (diagramLink.Target as SinglePortAnchor)?.Port;
+        
+        if (sourcePort?.Parent is WorkflowNodeModel sNode && targetPort?.Parent is WorkflowNodeModel tNode)
+        {
+            return sNode.StepId == stateLink.SourceNodeId && 
+                   sourcePort.Alignment.ToString() == stateLink.SourcePortId &&
+                   tNode.StepId == stateLink.TargetNodeId &&
+                   targetPort.Alignment.ToString() == stateLink.TargetPortId;
+        }
+        return false;
+    }
 
     private void OnDiagramPointerUp(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
-        // Проверяем все узлы на предмет выделения и изменения координат.
-        // Если мы перетаскивали конкретный узел, его новые координаты нужно зафиксировать во Fluxor.
+        // Если мы в процессе синхронизации или холст еще не готов, блокируем отправку координат
+        if (_isSyncing) return;
+        
         foreach (var node in Diagram.Nodes)
         {
             if (node is WorkflowNodeModel workflowNode && node.Selected)
             {
+                // Защита от сброса в (0,0): не сохраняем координаты, если они подозрительно равны нулю
+                // (если только ты намеренно не ставишь их в угол)
+                if (node.Position.X == 0 && node.Position.Y == 0) continue;
+
                 var newPos = new CanvasPosition(node.Position.X, node.Position.Y);
                 Dispatcher.Dispatch(new MoveStepAction(WorkflowId, workflowNode.StepId, newPos));
             }
         }
+    }
+
+    private void OnLinkAdded(Blazor.Diagrams.Core.Models.Base.BaseLinkModel link)
+    {
+        link.TargetChanged += (l, _, newTarget) => 
+        {
+            if (_isSyncing) return;
+            
+            var sourcePort = (l.Source as SinglePortAnchor)?.Port;
+            var targetPort = (newTarget as SinglePortAnchor)?.Port;
+
+            if (sourcePort?.Parent is WorkflowNodeModel sourceNode && targetPort?.Parent is WorkflowNodeModel targetNode)
+            {
+                var workflowLink = new WorkflowLink
+                {
+                    Id = Guid.NewGuid().ToString(), // Генерируем новый ID для Fluxor
+                    SourceNodeId = sourceNode.StepId,
+                    SourcePortId = sourcePort.Alignment.ToString(), 
+                    TargetNodeId = targetNode.StepId,
+                    TargetPortId = targetPort.Alignment.ToString()
+                };
+
+                Dispatcher.Dispatch(new AddLinkAction(WorkflowId, workflowLink));
+            }
+        };
+    }
+
+    private void OnLinkRemoved(Blazor.Diagrams.Core.Models.Base.BaseLinkModel link)
+    {
+        if (_isSyncing || !(link.Target is SinglePortAnchor)) return; 
+        
+        if (State.Value.OpenDocuments.TryGetValue(WorkflowId, out var document))
+        {
+            // Ищем удаленный линк в стейте по портам
+            var stateLink = document.Links.FirstOrDefault(dl => MatchLink(link, dl));
+            if (stateLink != null)
+            {
+                Dispatcher.Dispatch(new RemoveLinkAction(WorkflowId, stateLink.Id));
+            }
+        }
+    }
+    
+    // Явная реализация IDisposable для предотвращения утечек
+    public void Dispose()
+    {
+        State.StateChanged -= OnStateChanged;
+        Diagram.PointerUp -= OnDiagramPointerUp;
+        Diagram.Links.Added -= OnLinkAdded;
+        Diagram.Links.Removed -= OnLinkRemoved;
     }
 }

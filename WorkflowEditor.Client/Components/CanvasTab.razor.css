@@ -1,0 +1,31 @@
+.canvas-wrapper {
+    background-color: #1e1e1e;
+    background-image: radial-gradient(circle, #444 1px, transparent 1px);
+    background-size: 20px 20px;
+}
+
+/* =========================================
+   Контракт стилей для портов (Link Anchors)
+   ========================================= */
+::deep .port {
+    width: 16px;
+    height: 16px;
+    background-color: #3267ff; /* Primary цвет MudBlazor */
+    border: 2px solid #1e1e1e; /* Цвет фона подложки */
+    border-radius: 50%;
+    position: absolute;
+    cursor: crosshair;
+    z-index: 10;
+    transition: transform 0.1s ease-in-out;
+}
+
+::deep .port:hover {
+    background-color: #ff4081; /* Secondary цвет для фокуса */
+    transform: scale(1.3);
+}
+
+/* Строгое позиционирование в зависимости от Alignment */
+::deep .port.left { top: 50%; left: -8px; transform: translateY(-50%); }
+::deep .port.right { top: 50%; right: -8px; transform: translateY(-50%); }
+::deep .port.top { left: 50%; top: -8px; transform: translateX(-50%); }
+::deep .port.bottom { left: 50%; bottom: -8px; transform: translateX(-50%); }

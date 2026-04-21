@@ -1,0 +1,21 @@
+@using Blazor.Diagrams.Components.Renderers
+@using WorkflowEditor.Client.Diagram.Nodes
+@using MudBlazor
+
+<MudPaper Elevation="4" 
+          Class="@(Node.Selected ? "pa-4 border-2 border-solid mud-border-primary" : "pa-4")"
+          Style="min-width: 200px; cursor: pointer; position: relative; overflow: visible;">
+    <MudStack Spacing="1" AlignItems="AlignItems.Center">
+        <MudIcon Icon="@Icons.Material.Filled.Settings" Color="Color.Success" Size="Size.Small" />
+        <MudText Typo="Typo.body2">@Node.Title</MudText>
+    </MudStack>
+    
+    @foreach (var port in Node.Ports)
+    {
+        <PortRenderer Port="port" />
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public BaseNodeModel Node { get; set; } = null!;
+}

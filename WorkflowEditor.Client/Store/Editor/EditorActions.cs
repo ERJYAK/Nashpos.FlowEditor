@@ -27,3 +27,9 @@ public record LoadWorkflowSuccessAction(WorkflowDocument Document);
 
 // Ошибка загрузки
 public record LoadWorkflowFailedAction(string ErrorMessage);
+
+public record CreateNewWorkflowAction(string TriggerSource = "UI");
+
+// Мутации связей (линков)
+public record AddLinkAction(string WorkflowId, WorkflowLink Link);
+public record RemoveLinkAction(string WorkflowId, string LinkId);

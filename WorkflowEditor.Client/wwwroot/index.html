@@ -8,10 +8,40 @@
     <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" rel="stylesheet" />
     <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
     <link href="WorkflowEditor.Client.styles.css" rel="stylesheet" />
+
+    <link href="_content/Z.Blazor.Diagrams/style.css" rel="stylesheet" />
+    <link href="_content/Z.Blazor.Diagrams/default.css" rel="stylesheet" />
+
+    <style>
+        /* Глобальные стили для портов, которые перекроют любые ограничения */
+        .port {
+            width: 14px !important;
+            height: 14px !important;
+            background-color: #3267ff !important; /* Наш Primary цвет */
+            border: 2px solid #ffffff !important;
+            border-radius: 50% !important;
+            display: block !important;
+            position: absolute !important;
+            z-index: 100 !important;
+            cursor: crosshair !important;
+        }
+        .port:hover {
+            background-color: #ff4081 !important;
+            transform: scale(1.2);
+        }
+        /* Центрирование портов относительно граней */
+        .port.left { left: -7px; top: 50%; transform: translateY(-50%); }
+        .port.right { right: -7px; top: 50%; transform: translateY(-50%); }
+        .port.top { top: -7px; left: 50%; transform: translateX(-50%); }
+        .port.bottom { bottom: -7px; left: 50%; transform: translateX(-50%); }
+    </style>
 </head>
-<body>
-<div id="app">Загрузка...</div>
-<script src="_framework/blazor.webassembly.js"></script>
-<script src="_content/MudBlazor/MudBlazor.min.js"></script>
-</body>
+    <body>
+    <div id="app">Загрузка...</div>
+
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+
+    <script src="_content/Z.Blazor.Diagrams/script.min.js"></script>
+    </body>
 </html>

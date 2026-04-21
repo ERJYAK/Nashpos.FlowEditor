@@ -4,20 +4,26 @@
 @using MudBlazor
 @using WorkflowEditor.Client.Store.Editor
 @using WorkflowEditor.Client.Components
+@using WorkflowEditor.Core.Models
+@using WorkflowEditor.Core.Models.Steps
 
 <MudAppBar Elevation="1" Dense="true">
     <MudText Typo="Typo.h6" Class="mr-4">Workflow Editor</MudText>
-    <MudButton Variant="Variant.Filled" 
-               Color="Color.Primary" 
-               StartIcon="@Icons.Material.Filled.Save"
-               OnClick="SaveActiveDocument">
-        Сохранить
-    </MudButton>
     
+    <MudButton Variant="Variant.Filled"
+               Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Add"
+               OnClick="CreateNewWorkflow">
+         Создать процесс
+    </MudButton>
+
     <MudButton Variant="Variant.Filled" 
                Color="Color.Secondary" 
-               OnClick="CreateTestWorkflow">
-        Тестовый узел
+               Class="ml-2"
+               StartIcon="@Icons.Material.Filled.AddBox"
+               Disabled="@(State.Value.ActiveDocumentId == null)"
+               OnClick="AddStepToActive">
+        Добавить шаг
     </MudButton>
     
     <MudSpacer />
@@ -26,7 +32,9 @@
 <div class="editor-container mt-2" style="height: calc(100vh - 64px);">
     @if (State.Value.OpenDocuments.Any())
     {
-        <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-0" 
+        @* Привязываем ActivePanelIndex к нашему стейту через поиск индекса *@
+        <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true" 
+                 ActivePanelIndex="@GetActiveIndex()"
                  ActivePanelIndexChanged="OnTabChanged">
             @foreach (var doc in State.Value.OpenDocuments.Values)
             {
@@ -40,7 +48,12 @@
     }
     else
     {
-        <MudAlert Severity="Severity.Info">Нет открытых процессов</MudAlert>
+        <MudStack AlignItems="AlignItems.Center" Class="mt-10">
+            <MudAlert Severity="Severity.Info">Нет открытых процессов. Создайте новый, чтобы начать работу.</MudAlert>
+           <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="CreateNewWorkflow">
+        Создать первый процесс
+    </MudButton>
+        </MudStack>
     }
 </div>
 
@@ -48,49 +61,57 @@
     [Inject] private IState<EditorState> State { get; set; } = null!;
     [Inject] private IDispatcher Dispatcher { get; set; } = null!;
 
-    protected override void OnInitialized()
+    private int GetActiveIndex()
     {
-        base.OnInitialized();
-    
-        // Загружаем основной рабочий процесс при входе в редактор
-        // В реальном приложении ID может приходить из URL или списка файлов
-        Dispatcher.Dispatch(new LoadWorkflowAction("main-flow-id"));
+        if (State.Value.ActiveDocumentId == null) return 0;
+        
+        var list = State.Value.OpenDocuments.Values.ToList();
+        var index = list.FindIndex(d => d.WorkflowId == State.Value.ActiveDocumentId);
+        
+        // Гарантируем, что индекс никогда не будет отрицательным
+        return index >= 0 ? index : 0;
+        
     }
-    
+
     private void OnTabChanged(int index)
     {
-        // При переключении вкладок обновляем ActiveDocumentId в стейте
-        var workflowId = State.Value.OpenDocuments.Values.ElementAt(index).WorkflowId;
-        Dispatcher.Dispatch(new SwitchTabAction(workflowId));
+        var docs = State.Value.OpenDocuments.Values.ToList();
+        if (index >= 0 && index < docs.Count)
+        {
+            Dispatcher.Dispatch(new SwitchTabAction(docs[index].WorkflowId));
+        }
     }
 
     private void SaveActiveDocument()
     {
         if (State.Value.ActiveDocumentId != null)
         {
-            // Триггерим эффект сохранения через gRPC
             Dispatcher.Dispatch(new SaveWorkflowAction(State.Value.ActiveDocumentId));
         }
     }
     
-    private void CreateTestWorkflow()
+    private void AddStepToActive()
     {
-        var testDoc = new WorkflowEditor.Core.Models.WorkflowDocument
+        Console.WriteLine("[Слой UI] Нажата кнопка 'Добавить шаг'");
+        var activeId = State.Value.ActiveDocumentId;
+        if (activeId == null) return;
+
+        // Небольшой рандом, чтобы карточки не появлялись строго одна поверх другой
+        var offset = new Random().Next(0, 50);
+
+        var newStep = new BaseStep
         {
-            WorkflowId = "test-id",
-            Name = "Тестовый процесс",
-            Steps = new List<WorkflowEditor.Core.Models.WorkflowStep>
-            {
-                new WorkflowEditor.Core.Models.Steps.SubflowStep
-                {
-                    Id = "node-1",
-                    Name = "Ручная проверка",
-                    SubflowId = "manual-check-01",
-                    Position = new WorkflowEditor.Core.Models.CanvasPosition(50, 50)
-                }
-            }
+            Id = Guid.NewGuid().ToString(),
+            Name = "Новая задача",
+            Position = new CanvasPosition(100 + offset, 100 + offset)
         };
+
+        Dispatcher.Dispatch(new AddStepAction(activeId, newStep));
+    }
     
-        Dispatcher.Dispatch(new LoadWorkflowSuccessAction(testDoc));
+    private void CreateNewWorkflow()
+    {
+        Console.WriteLine("[Слой UI] Нажата кнопка 'Создать процесс'. Отправляем экшен...");
+        Dispatcher.Dispatch(new CreateNewWorkflowAction());
     }
 }
