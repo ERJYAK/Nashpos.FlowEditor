@@ -22,14 +22,29 @@ public class WorkflowStorageService : WorkflowStorage.WorkflowStorageBase
 
     public override Task<WorkflowDocumentResponse> GetWorkflow(GetWorkflowRequest request, ServerCallContext context)
     {
-        Console.WriteLine($"[gRPC] Загрузка документа: {request.WorkflowId}");
+        
+        var testDocument = """
+                           {
+                             "workflowId": "main-flow-id",
+                             "name": "Основной процесс",
+                             "steps": [
+                               {
+                                 "type": "subflow",
+                                 "id": "node-1",
+                                 "name": "Проверка оплаты",
+                                 "position": { "x": 100, "y": 100 },
+                                 "subflowId": "payment-logic-v1"
+                               }
+                             ],
+                             "links": []
+                           }
+                           """;
 
         return Task.FromResult(new WorkflowDocumentResponse
         {
             WorkflowId = request.WorkflowId,
-            Name = "New Workflow",
-            // Для теста возвращаем пустой граф с валидной JSON-структурой
-            JsonPayload = """{"workflowId":"123","name":"Test","steps":[],"links":[]}""" 
+            Name = "Основной процесс",
+            JsonPayload = testDocument
         });
     }
 }

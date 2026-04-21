@@ -36,4 +36,33 @@ public static class EditorReducers
             OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, updatedDocument)
         };
     }
+    
+    [ReducerMethod]
+    public static EditorState ReduceLoadWorkflowAction(EditorState state, LoadWorkflowAction action)
+    {
+        // Включаем индикатор загрузки (опционально для UI)
+        return state with { IsLoading = true };
+    }
+
+    [ReducerMethod]
+    public static EditorState ReduceLoadWorkflowSuccessAction(EditorState state, LoadWorkflowSuccessAction action)
+    {
+        // Добавляем новый документ в словарь OpenDocuments
+        // Если документ с таким ID уже открыт, он будет обновлен (Source of Truth)
+        var newDocuments = state.OpenDocuments.SetItem(action.Document.WorkflowId, action.Document);
+
+        return state with
+        {
+            IsLoading = false,
+            OpenDocuments = newDocuments,
+            ActiveDocumentId = action.Document.WorkflowId // Переключаем фокус на новую вкладку
+        };
+    }
+
+    [ReducerMethod]
+    public static EditorState ReduceLoadWorkflowFailedAction(EditorState state, LoadWorkflowFailedAction action)
+    {
+        // Выключаем лоадер при ошибке
+        return state with { IsLoading = false };
+    }
 }

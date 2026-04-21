@@ -6,6 +6,8 @@
 @using WorkflowEditor.Client.Store.Editor
 @using WorkflowEditor.Core.Models
 @using Blazor.Diagrams.Core.Models.Base
+@using WorkflowEditor.Client.Components.Nodes
+@using WorkflowEditor.Core.Models.Steps
 
 <div class="canvas-wrapper" style="width: 100%; height: 100%;">
     <CascadingValue Value="Diagram">
@@ -26,6 +28,11 @@
     {
         base.OnInitialized();
 
+        State.StateChanged += (sender, args) => SyncStateToDiagram();
+        
+        // Регистрируем маппинг: Модель -> Виджет
+        Diagram.RegisterComponent<SubflowNodeModel, SubflowNodeWidget>();
+
         // Подписываемся на события движка (Снизу-Вверх: UI -> Fluxor)
         Diagram.PointerUp += OnDiagramPointerUp;
     }
@@ -41,20 +48,24 @@
     {
         if (!State.Value.OpenDocuments.TryGetValue(WorkflowId, out var document)) return;
 
+        if (Diagram.Nodes.Count == document.Steps.Count) return;
+        
         _isSyncing = true;
-        Diagram.Nodes.Clear();
-
-        // Проходим по иммутабельному списку из Core и создаем визуальные узлы
-        foreach (var step in document.Steps)
+        InvokeAsync(() => 
         {
-            // Здесь потребуется фабрика, которая по типу step (TimerStep, SubflowStep) 
-            // будет создавать правильный WorkflowNodeModel. 
-            // Пока для примера создаем базовый узел.
-            // var node = NodeFactory.Create(step); 
-            // Diagram.Nodes.Add(node);
-        }
+            Diagram.Nodes.Clear();
+            foreach (var step in document.Steps)
+            {
+                if (step is SubflowStep subflowStep)
+                {
+                    Diagram.Nodes.Add(new SubflowNodeModel(subflowStep));
+                }
+            }
+            StateHasChanged(); // Принудительно уведомляем Blazor
+        });
         _isSyncing = false;
     }
+    
 
     private void OnDiagramPointerUp(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {

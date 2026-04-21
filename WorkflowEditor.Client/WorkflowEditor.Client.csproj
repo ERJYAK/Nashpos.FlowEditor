@@ -7,7 +7,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <Folder Include="Diagram\Nodes\" />
       <Folder Include="Diagram\Ports\" />
     </ItemGroup>
 
@@ -17,11 +16,13 @@
       <PackageReference Include="Google.Protobuf" Version="3.35.0-rc1" />
       <PackageReference Include="Grpc.Net.Client" Version="2.80.0-pre1" />
       <PackageReference Include="Grpc.Net.Client.Web" Version="2.80.0-pre1" />
+      <PackageReference Include="Grpc.Net.ClientFactory" Version="2.80.0-pre1" />
       <PackageReference Include="Grpc.Tools" Version="2.80.0">
         <PrivateAssets>all</PrivateAssets>
         <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       </PackageReference>
       <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.6" />
+      <PackageReference Include="MudBlazor" Version="9.3.0" />
       <PackageReference Include="Z.Blazor.Diagrams" Version="3.0.4.1" />
     </ItemGroup>
 

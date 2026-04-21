@@ -18,3 +18,12 @@ public record SaveWorkflowAction(string WorkflowId);
 // Результаты выполнения (их будут слушать редьюсеры, чтобы, например, скрыть лоадер)
 public record SaveWorkflowSuccessAction(string WorkflowId);
 public record SaveWorkflowFailedAction(string WorkflowId, string ErrorMessage);
+
+// Инициация загрузки
+public record LoadWorkflowAction(string WorkflowId);
+
+// Успешный результат (передаем уже десериализованный документ)
+public record LoadWorkflowSuccessAction(WorkflowDocument Document);
+
+// Ошибка загрузки
+public record LoadWorkflowFailedAction(string ErrorMessage);

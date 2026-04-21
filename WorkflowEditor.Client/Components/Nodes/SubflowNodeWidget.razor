@@ -1,0 +1,46 @@
+@using Blazor.Diagrams.Components.Renderers
+@using Fluxor
+@using WorkflowEditor.Client.Diagram.Nodes
+@using MudBlazor
+@using WorkflowEditor.Client.Store.Editor
+
+<MudPaper Elevation="4" 
+          Class="@(Node.Selected ? "pa-4 border-2 border-solid mud-border-primary" : "pa-4")"
+          Style="min-width: 200px; cursor: pointer;">
+    <MudStack Spacing="1">
+        <MudStack Row="true" AlignItems="AlignItems.Center">
+            <MudIcon Icon="@Icons.Material.Filled.AccountTree" Color="Color.Primary" />
+            <MudText Typo="Typo.subtitle2">@Node.Title</MudText>
+        </MudStack>
+        <MudDivider />
+        <MudText Typo="Typo.caption" Color="Color.Secondary">
+            ID: @Node.SubflowId
+        </MudText>
+        <MudButton Variant="Variant.Outlined" 
+                   Size="Size.Small" 
+                   FullWidth="true"
+                   Color="Color.Info"
+                   OnClick="OnOpenSubflow">
+            Открыть подпроцесс
+        </MudButton>
+    </MudStack>
+    
+    @foreach (var port in Node.Ports)
+    {
+        <PortRenderer Port="port" />
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public SubflowNodeModel Node { get; set; } = null!;
+    [Inject] private IDispatcher Dispatcher { get; set; } = null!;
+
+    private void OnOpenSubflow()
+    {
+        // Вместо Drill-down (замены текущего холста), мы инициируем открытие новой вкладки
+        // Это соответствует твоему требованию о переключении между холстами [cite: 78, 79]
+        // Dispatcher.Dispatch(new LoadWorkflowAction(Node.SubflowId));
+        
+        Dispatcher.Dispatch(new LoadWorkflowAction(Node.SubflowId));
+    }
+}
