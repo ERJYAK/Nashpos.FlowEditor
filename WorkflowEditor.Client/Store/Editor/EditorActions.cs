@@ -33,3 +33,9 @@ public record CreateNewWorkflowAction(string TriggerSource = "UI");
 // Мутации связей (линков)
 public record AddLinkAction(string WorkflowId, WorkflowLink Link);
 public record RemoveLinkAction(string WorkflowId, string LinkId);
+
+// Добавь это в EditorActions.cs
+public record RenameStepAction(string WorkflowId, string StepId, string NewName);
+
+public record StartEditingStepAction(string StepId);
+public record StopEditingStepAction();

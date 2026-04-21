@@ -1,21 +1,94 @@
 @using Blazor.Diagrams.Components.Renderers
 @using WorkflowEditor.Client.Diagram.Nodes
 @using MudBlazor
+@using Fluxor
+@using WorkflowEditor.Client.Store.Editor
+@using Microsoft.AspNetCore.Components.Web
 
-<MudPaper Elevation="4" 
+<MudPaper Elevation="4"
           Class="@(Node.Selected ? "pa-4 border-2 border-solid mud-border-primary" : "pa-4")"
-          Style="min-width: 200px; cursor: pointer; position: relative; overflow: visible;">
+          Style="min-width: 200px; cursor: pointer; position: relative; overflow: visible;"
+          @ondblclick="StartEditing"
+          @onclick:stopPropagation="true">
+
     <MudStack Spacing="1" AlignItems="AlignItems.Center">
-        <MudIcon Icon="@Icons.Material.Filled.Settings" Color="Color.Success" Size="Size.Small" />
-        <MudText Typo="Typo.body2">@Node.Title</MudText>
+        <MudIcon Icon="@Icons.Material.Filled.Settings" Color="Color.Success" Size="Size.Small"/>
+
+        @if (State.Value.EditingStepId == Node.StepId)
+        {
+            <MudTextField @bind-Value="_editingName"
+                          AutoFocus="true"
+                          Margin="Margin.Dense"
+                          OnKeyDown="HandleKeyDown"
+                          OnBlur="SaveAndStopEditing"
+                          @onclick:stopPropagation="true"
+                          @onmousedown:stopPropagation="true"/>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2">@Node.Title</MudText>
+        }
     </MudStack>
-    
+
     @foreach (var port in Node.Ports)
     {
-        <PortRenderer Port="port" />
+        <PortRenderer Port="port"/>
     }
 </MudPaper>
 
 @code {
     [Parameter] public BaseNodeModel Node { get; set; } = null!;
+    [Inject] private IState<EditorState> State { get; set; } = null!;
+    [Inject] private IDispatcher Dispatcher { get; set; } = null!;
+
+    private string _editingName = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        // Синхронизируем имя для редактирования, если компонент перерисовывается
+        if (State.Value.EditingStepId != Node.StepId)
+        {
+            _editingName = Node.Title ?? string.Empty;
+        }
+    }
+
+    private void StartEditing()
+    {
+        // Запоминаем текущее имя перед началом редактирования
+        _editingName = Node.Title ?? string.Empty;
+        Dispatcher.Dispatch(new StartEditingStepAction(Node.StepId));
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            SaveAndStopEditing();
+        }
+        else if (e.Key == "Escape")
+        {
+            CancelEditing();
+        }
+    }
+
+    private void CancelEditing()
+    {
+        Dispatcher.Dispatch(new StopEditingStepAction());
+    }
+
+    private void SaveAndStopEditing()
+    {
+        var activeWorkflowId = State.Value.ActiveDocumentId;
+        if (!string.IsNullOrWhiteSpace(_editingName) && activeWorkflowId != null)
+        {
+            // Отправляем действие на переименование, только если имя изменилось
+            if (_editingName != Node.Title)
+            {
+                Dispatcher.Dispatch(new RenameStepAction(activeWorkflowId, Node.StepId, _editingName));
+            }
+        }
+        
+        // В любом случае выходим из режима редактирования
+        Dispatcher.Dispatch(new StopEditingStepAction());
+    }
 }

@@ -92,23 +92,21 @@
                     if (existingNode != null) Diagram.Nodes.Add(existingNode);
                 }
 
-                // ПРИНУДИТЕЛЬНАЯ СИНХРОНИЗАЦИЯ КООРДИНАТ
-                // Переопределяем возможные глюки JS Interop координатами из Source of Truth
                 if (existingNode != null)
                 {
+                    // ПРИНУДИТЕЛЬНАЯ СИНХРОНИЗАЦИЯ КООРДИНАТ
                     existingNode.SetPosition(step.Position.X, step.Position.Y);
+                    
                 }
             }
 
             // 2. Синхронизация линков
-            // Удаляем линки, которых нет в стейте (используем метод-сопоставитель)
             var linksToRemove = Diagram.Links
                 .Where(l => l.Target is SinglePortAnchor && !document.Links.Any(dl => MatchLink(l, dl))).ToList();
             Diagram.Links.Remove(linksToRemove);
 
             foreach (var link in document.Links)
             {
-                // Если линк с такими же портами уже есть на холсте, пропускаем
                 if (Diagram.Links.Any(l => MatchLink(l, link))) continue;
 
                 var sourceNode = Diagram.Nodes.OfType<WorkflowNodeModel>().FirstOrDefault(n => n.StepId == link.SourceNodeId);
@@ -121,7 +119,6 @@
 
                     if (sourcePort != null && targetPort != null)
                     {
-                        // Создаем линк без жесткой привязки ID
                         var diagramLink = new Blazor.Diagrams.Core.Models.LinkModel(sourcePort, targetPort);
                         Diagram.Links.Add(diagramLink);
                     }
@@ -136,7 +133,6 @@
     // Вспомогательный метод для матчинга линков движка с контрактами Fluxor
     private bool MatchLink(Blazor.Diagrams.Core.Models.Base.BaseLinkModel diagramLink, WorkflowLink stateLink)
     {
-        // В 3.x Source и Target - это Anchors. Приводим их к порту.
         var sourcePort = (diagramLink.Source as SinglePortAnchor)?.Port;
         var targetPort = (diagramLink.Target as SinglePortAnchor)?.Port;
         
@@ -152,15 +148,12 @@
 
     private void OnDiagramPointerUp(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
-        // Если мы в процессе синхронизации или холст еще не готов, блокируем отправку координат
         if (_isSyncing) return;
         
         foreach (var node in Diagram.Nodes)
         {
             if (node is WorkflowNodeModel workflowNode && node.Selected)
             {
-                // Защита от сброса в (0,0): не сохраняем координаты, если они подозрительно равны нулю
-                // (если только ты намеренно не ставишь их в угол)
                 if (node.Position.X == 0 && node.Position.Y == 0) continue;
 
                 var newPos = new CanvasPosition(node.Position.X, node.Position.Y);
@@ -182,7 +175,7 @@
             {
                 var workflowLink = new WorkflowLink
                 {
-                    Id = Guid.NewGuid().ToString(), // Генерируем новый ID для Fluxor
+                    Id = Guid.NewGuid().ToString(),
                     SourceNodeId = sourceNode.StepId,
                     SourcePortId = sourcePort.Alignment.ToString(), 
                     TargetNodeId = targetNode.StepId,
@@ -200,7 +193,6 @@
         
         if (State.Value.OpenDocuments.TryGetValue(WorkflowId, out var document))
         {
-            // Ищем удаленный линк в стейте по портам
             var stateLink = document.Links.FirstOrDefault(dl => MatchLink(link, dl));
             if (stateLink != null)
             {
@@ -209,7 +201,6 @@
         }
     }
     
-    // Явная реализация IDisposable для предотвращения утечек
     public void Dispose()
     {
         State.StateChanged -= OnStateChanged;

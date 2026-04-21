@@ -1,5 +1,3 @@
-using WorkflowEditor.Core.Models;
-
 namespace WorkflowEditor.Client.Store.Editor;
 
 using System.Text.Json;
@@ -66,37 +64,5 @@ public class EditorEffects
         }
     }
     
-    [EffectMethod]
-    public async Task HandleLoadWorkflow(LoadWorkflowAction action, IDispatcher dispatcher)
-    {
-        try
-        {
-            // 1. Формируем запрос к gRPC сервису
-            var request = new GetWorkflowRequest { WorkflowId = action.WorkflowId };
-        
-            // 2. Выполняем асинхронный вызов к API
-            var response = await _grpcClient.GetWorkflowAsync(request);
-
-            // 3. Десериализуем JSON-полезную нагрузку в нашу модель данных Core
-            var document = JsonSerializer.Deserialize<WorkflowDocument>(
-                response.JsonPayload, 
-                JsonConfiguration.GetOptions()
-            );
-
-            if (document != null)
-            {
-                // 4. Отправляем документ в Store для отображения на холсте
-                dispatcher.Dispatch(new LoadWorkflowSuccessAction(document));
-            }
-            else
-            {
-                dispatcher.Dispatch(new LoadWorkflowFailedAction("Ошибка парсинга документа"));
-            }
-        }
-        catch (Exception ex)
-        {
-            // Обработка сетевых ошибок или недоступности сервера
-            dispatcher.Dispatch(new LoadWorkflowFailedAction($"Ошибка связи с сервером: {ex.Message}"));
-        }
-    }
+    
 }

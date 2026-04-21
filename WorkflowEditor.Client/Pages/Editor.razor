@@ -36,12 +36,20 @@
         <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true" 
                  ActivePanelIndex="@GetActiveIndex()"
                  ActivePanelIndexChanged="OnTabChanged">
-            @foreach (var doc in State.Value.OpenDocuments.Values)
+                 
+            @* Добавляем OrderBy прямо в разметку *@
+            @foreach (var doc in State.Value.OpenDocuments.Values.OrderBy(d => d.CreatedAt))
             {
                 <MudTabPanel Text="@doc.Name" Tag="@doc.WorkflowId">
-                    <div style="height: calc(100vh - 120px);">
-                        <CanvasTab WorkflowId="@doc.WorkflowId" />
-                    </div>
+                
+                    @* КРИТИЧЕСКИЙ ФИКС: Рендерим холст ТОЛЬКО для активной вкладки *@
+                    @if (State.Value.ActiveDocumentId == doc.WorkflowId)
+                    {
+                        <div style="height: calc(100vh - 120px);">
+                            <CanvasTab WorkflowId="@doc.WorkflowId" />
+                        </div>
+                    }
+                    
                 </MudTabPanel>
             }
         </MudTabs>
@@ -65,17 +73,17 @@
     {
         if (State.Value.ActiveDocumentId == null) return 0;
         
-        var list = State.Value.OpenDocuments.Values.ToList();
+        // Строгая сортировка по времени создания
+        var list = State.Value.OpenDocuments.Values.OrderBy(d => d.CreatedAt).ToList();
         var index = list.FindIndex(d => d.WorkflowId == State.Value.ActiveDocumentId);
         
-        // Гарантируем, что индекс никогда не будет отрицательным
         return index >= 0 ? index : 0;
-        
     }
 
     private void OnTabChanged(int index)
     {
-        var docs = State.Value.OpenDocuments.Values.ToList();
+        // Синхронизируем массив для правильного переключения
+        var docs = State.Value.OpenDocuments.Values.OrderBy(d => d.CreatedAt).ToList();
         if (index >= 0 && index < docs.Count)
         {
             Dispatcher.Dispatch(new SwitchTabAction(docs[index].WorkflowId));

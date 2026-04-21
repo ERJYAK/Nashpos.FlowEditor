@@ -15,4 +15,6 @@ public record WorkflowDocument
 
     [JsonPropertyName("links")]
     public List<WorkflowLink> Links { get; init; } = new();
+    
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 }

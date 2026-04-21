@@ -13,6 +13,8 @@ public record EditorState
     public ImmutableDictionary<string, WorkflowDocument> OpenDocuments { get; init; }
     
     public string? ActiveDocumentId { get; init; }
+    
+    public string? EditingStepId { get; init; }
 
     // Требование Fluxor: конструктор без параметров для начального состояния
     public EditorState()
@@ -20,5 +22,6 @@ public record EditorState
         IsLoading = false;
         OpenDocuments = ImmutableDictionary<string, WorkflowDocument>.Empty;
         ActiveDocumentId = null;
+        EditingStepId = null;
     }
 }

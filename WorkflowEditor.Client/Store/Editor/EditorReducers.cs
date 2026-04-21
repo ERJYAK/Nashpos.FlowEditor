@@ -153,4 +153,35 @@ public static class EditorReducers
         return state with { OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, updatedDocument) };
     }
     
+    // Добавь этот метод в EditorReducers.cs
+    [ReducerMethod]
+    public static EditorState ReduceRenameStepAction(EditorState state, RenameStepAction action)
+    {
+        if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document)) return state;
+
+        var newSteps = document.Steps.Select(s => 
+        {
+            if (s.Id != action.StepId) return s;
+        
+            // Полиморфное обновление в зависимости от типа шага
+            if (s is SubflowStep sub) return sub with { Name = action.NewName };
+            if (s is BaseStep b) return b with { Name = action.NewName };
+            return s;
+        }).ToList();
+
+        var updatedDocument = document with { Links = document.Links, Steps = newSteps };
+        return state with { OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, updatedDocument) };
+    }
+
+    [ReducerMethod]
+    public static EditorState ReduceStartEditingStepAction(EditorState state, StartEditingStepAction action)
+    {
+        return state with { EditingStepId = action.StepId };
+    }
+
+    [ReducerMethod]
+    public static EditorState ReduceStopEditingStepAction(EditorState state, StopEditingStepAction action)
+    {
+        return state with { EditingStepId = null };
+    }
 }
