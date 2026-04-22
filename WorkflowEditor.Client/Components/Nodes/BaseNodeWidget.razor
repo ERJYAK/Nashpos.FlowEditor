@@ -4,6 +4,7 @@
 @using Fluxor
 @using WorkflowEditor.Client.Store.Editor
 @using Microsoft.AspNetCore.Components.Web
+@using WorkflowEditor.Core.Models
 
 <MudPaper Elevation="4"
           Class="@(Node.Selected ? "pa-4 border-2 border-solid mud-border-primary" : "pa-4")"
@@ -17,6 +18,7 @@
         @if (State.Value.EditingStepId == Node.StepId)
         {
             <MudTextField @bind-Value="_editingName"
+                          Immediate="true"
                           AutoFocus="true"
                           Margin="Margin.Dense"
                           OnKeyDown="HandleKeyDown"
@@ -26,7 +28,7 @@
         }
         else
         {
-            <MudText Typo="Typo.body2">@Node.Title</MudText>
+            <MudText Typo="Typo.body2">@CurrentName</MudText>
         }
     </MudStack>
 
@@ -43,19 +45,26 @@
 
     private string _editingName = string.Empty;
 
-    protected override void OnParametersSet()
+    private string CurrentName
     {
-        // Синхронизируем имя для редактирования, если компонент перерисовывается
-        if (State.Value.EditingStepId != Node.StepId)
+        get
         {
-            _editingName = Node.Title ?? string.Empty;
+            if (State.Value.ActiveDocumentId != null &&
+                State.Value.OpenDocuments.TryGetValue(State.Value.ActiveDocumentId, out var doc))
+            {
+                var step = doc.Steps.FirstOrDefault(s => s.Id == Node.StepId);
+                if (step != null)
+                {
+                    return step.Name;
+                }
+            }
+            return Node.Title;
         }
     }
 
     private void StartEditing()
     {
-        // Запоминаем текущее имя перед началом редактирования
-        _editingName = Node.Title ?? string.Empty;
+        _editingName = CurrentName;
         Dispatcher.Dispatch(new StartEditingStepAction(Node.StepId));
     }
 
@@ -79,16 +88,12 @@
     private void SaveAndStopEditing()
     {
         var activeWorkflowId = State.Value.ActiveDocumentId;
+        
         if (!string.IsNullOrWhiteSpace(_editingName) && activeWorkflowId != null)
         {
-            // Отправляем действие на переименование, только если имя изменилось
-            if (_editingName != Node.Title)
-            {
-                Dispatcher.Dispatch(new RenameStepAction(activeWorkflowId, Node.StepId, _editingName));
-            }
+            Dispatcher.Dispatch(new RenameStepAction(activeWorkflowId, Node.StepId, _editingName));
         }
         
-        // В любом случае выходим из режима редактирования
         Dispatcher.Dispatch(new StopEditingStepAction());
     }
 }
