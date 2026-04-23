@@ -1,0 +1,59 @@
+@using MudBlazor
+@using Microsoft.AspNetCore.Components.Web
+
+@if (IsOpen)
+{
+    <div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9998;"
+         @onclick="CloseMenu"
+         @oncontextmenu="CloseMenu"
+         @oncontextmenu:preventDefault="true">
+    </div>
+
+    <div style="position: fixed; top: @(Y)px; left: @(X)px; z-index: 9999;">
+        <MudPaper Elevation="8" Class="py-1" Style="min-width: 160px;">
+            <MudMenuItem OnClick="OnPaste">Вставить</MudMenuItem>
+            <MudMenuItem OnClick="OnEdit">Изменить</MudMenuItem>
+            <MudMenuItem OnClick="OnDelete">Удалить</MudMenuItem>
+        </MudPaper>
+    </div>
+}
+
+@code {
+    public bool IsOpen { get; private set; }
+    public double X { get; private set; }
+    public double Y { get; private set; }
+
+    // Метод API компонента для вызова извне
+    public void Open(double x, double y)
+    {
+        X = x;
+        Y = y;
+        IsOpen = true;
+        StateHasChanged();
+    }
+
+    public void CloseMenu()
+    {
+        IsOpen = false;
+        StateHasChanged();
+    }
+
+    // Заглушки для будущих экшенов
+    private void OnPaste()
+    {
+        Console.WriteLine("[Контекстное меню] Выбрано: Вставить");
+        CloseMenu();
+    }
+
+    private void OnEdit()
+    {
+        Console.WriteLine("[Контекстное меню] Выбрано: Изменить");
+        CloseMenu();
+    }
+
+    private void OnDelete()
+    {
+        Console.WriteLine("[Контекстное меню] Выбрано: Удалить");
+        CloseMenu();
+    }
+}
