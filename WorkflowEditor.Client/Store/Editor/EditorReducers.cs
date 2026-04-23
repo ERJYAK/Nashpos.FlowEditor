@@ -12,6 +12,51 @@ using WorkflowEditor.Core.Models;
 public static class EditorReducers
 {
     [ReducerMethod]
+    public static EditorState ReduceCopySelectedItemAction(EditorState state, CopySelectedItemAction action)
+    {
+        if (action.SelectedItem is WorkflowNodeModel nodeModel)
+        {
+            if (state.ActiveDocumentId != null && state.OpenDocuments.TryGetValue(state.ActiveDocumentId, out var document))
+            {
+                var stepToCopy = document.Steps.FirstOrDefault(s => s.Id == nodeModel.StepId);
+                return state with { CopiedStep = stepToCopy };
+            }
+        }
+        return state;
+    }
+
+    [ReducerMethod]
+    public static EditorState ReducePasteItemAction(EditorState state, PasteItemAction action)
+    {
+        if (state.CopiedStep == null || state.ActiveDocumentId == null || !state.OpenDocuments.TryGetValue(state.ActiveDocumentId, out var document))
+        {
+            return state;
+        }
+
+        var newId = Guid.NewGuid().ToString();
+        
+        // КРИТИЧЕСКИЙ ФИКС: Явно указываем базовый тип WorkflowStep? вместо var
+        WorkflowStep? pastedStep = state.CopiedStep switch
+        {
+            SubflowStep subflow => subflow with { Id = newId, Position = new CanvasPosition(action.X, action.Y), Name = subflow.Name + " (Copy)" },
+            BaseStep baseStep => baseStep with { Id = newId, Position = new CanvasPosition(action.X, action.Y), Name = baseStep.Name + " (Copy)" },
+            _ => null
+        };
+
+        if (pastedStep != null)
+        {
+            // КРИТИЧЕСКИЙ ФИКС 2: Клонируем список перед добавлением, чтобы сохранить иммутабельность
+            var newSteps = document.Steps.ToList();
+            newSteps.Add(pastedStep);
+            
+            var updatedDocument = document with { Steps = newSteps };
+            return state with { OpenDocuments = state.OpenDocuments.SetItem(state.ActiveDocumentId, updatedDocument) };
+        }
+
+        return state;
+    }
+    
+    [ReducerMethod]
     public static EditorState ReduceDeleteSelectedItemAction(EditorState state, DeleteSelectedItemAction action)
     {
         if (state.ActiveDocumentId == null || !state.OpenDocuments.TryGetValue(state.ActiveDocumentId, out var document))
@@ -62,7 +107,7 @@ public static class EditorReducers
 
         return state;
     }
-
+    
     [ReducerMethod]
     public static EditorState ReduceOpenWorkflowAction(EditorState state, OpenWorkflowAction action)
     {

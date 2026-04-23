@@ -1,4 +1,5 @@
 using Blazor.Diagrams.Core.Models.Base;
+using Microsoft.AspNetCore.Components.Web;
 
 namespace WorkflowEditor.Client.Store.Editor;
 
@@ -43,3 +44,6 @@ public record StartEditingStepAction(string StepId);
 public record StopEditingStepAction();
 
 public record DeleteSelectedItemAction(SelectableModel SelectedItem);
+
+public record CopySelectedItemAction(SelectableModel SelectedItem);
+public record PasteItemAction(double X, double Y);

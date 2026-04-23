@@ -3,7 +3,12 @@
 @using Blazor.Diagrams.Core.Models.Base
 @using WorkflowEditor.Client.Store.Editor
 @using Fluxor
+@using WorkflowEditor.Client.Diagram.Nodes
+@using WorkflowEditor.Client.Store.Editor
 
+@inherits Fluxor.Blazor.Web.Components.FluxorComponent
+
+@inject IState<EditorState> EditorState
 @inject IDispatcher Dispatcher
 
 @if (IsOpen)
@@ -16,7 +21,8 @@
 
     <div style="position: fixed; top: @(Y)px; left: @(X)px; z-index: 9999;">
         <MudPaper Elevation="8" Class="py-1" Style="min-width: 160px;">
-            <MudMenuItem OnClick="OnPaste">Вставить</MudMenuItem>
+            <MudMenuItem OnClick="OnCopy" Disabled="@(!IsCopyable())">Копировать</MudMenuItem>
+            <MudMenuItem OnClick="OnPaste" Disabled="@(!IsPastable())">Вставить</MudMenuItem>
             <MudMenuItem OnClick="OnEdit">Изменить</MudMenuItem>
             <MudMenuItem OnClick="OnDelete" Disabled="@(_selectedObject is null)">Удалить</MudMenuItem>
         </MudPaper>
@@ -45,9 +51,31 @@
         StateHasChanged();
     }
 
+    private bool IsCopyable()
+    {
+        return _selectedObject is WorkflowNodeModel;
+    }
+
+    private bool IsPastable()
+    {
+        return EditorState.Value.CopiedStep != null;
+    }
+
+    private void OnCopy()
+    {
+        if (IsCopyable())
+        {
+            Dispatcher.Dispatch(new CopySelectedItemAction(_selectedObject!));
+        }
+        CloseMenu();
+    }
+
     private void OnPaste()
     {
-        Console.WriteLine("[Контекстное меню] Выбрано: Вставить");
+        if (IsPastable())
+        {
+            Dispatcher.Dispatch(new PasteItemAction(X, Y));
+        }
         CloseMenu();
     }
 

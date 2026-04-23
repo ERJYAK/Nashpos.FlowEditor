@@ -1,3 +1,5 @@
+using WorkflowEditor.Core.Models;
+
 namespace WorkflowEditor.Client.Store.Editor;
 
 using System.Collections.Immutable;
@@ -15,6 +17,8 @@ public record EditorState
     public string? ActiveDocumentId { get; init; }
     
     public string? EditingStepId { get; init; }
+    
+    public WorkflowStep? CopiedStep { get; init; }
 
     // Требование Fluxor: конструктор без параметров для начального состояния
     public EditorState()
@@ -23,5 +27,6 @@ public record EditorState
         OpenDocuments = ImmutableDictionary<string, WorkflowDocument>.Empty;
         ActiveDocumentId = null;
         EditingStepId = null;
+        CopiedStep = null;
     }
 }

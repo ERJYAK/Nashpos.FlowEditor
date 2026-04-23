@@ -7,7 +7,7 @@
 @using WorkflowEditor.Core.Models
 
 <MudPaper Elevation="4"
-          Class="@(Node.Selected ? "pa-4 border-2 border-solid mud-border-primary" : "pa-4")"
+          Class="@(Node.Selected ? "pa-4 selected-node" : "pa-4")"
           Style="min-width: 200px; cursor: pointer; position: relative; overflow: visible;"
           @ondblclick="StartEditing"
           @onclick:stopPropagation="true">
