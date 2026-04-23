@@ -1,3 +1,6 @@
+using Blazor.Diagrams.Core.Anchors;
+using Blazor.Diagrams.Core.Models;
+using WorkflowEditor.Client.Diagram.Nodes;
 using WorkflowEditor.Core.Models.Steps;
 
 namespace WorkflowEditor.Client.Store.Editor;
@@ -8,6 +11,58 @@ using WorkflowEditor.Core.Models;
 
 public static class EditorReducers
 {
+    [ReducerMethod]
+    public static EditorState ReduceDeleteSelectedItemAction(EditorState state, DeleteSelectedItemAction action)
+    {
+        if (state.ActiveDocumentId == null || !state.OpenDocuments.TryGetValue(state.ActiveDocumentId, out var document))
+        {
+            return state;
+        }
+
+        var updatedDocument = document;
+
+        switch (action.SelectedItem)
+        {
+            case WorkflowNodeModel nodeModel:
+            {
+                var newSteps = document.Steps.Where(s => s.Id != nodeModel.StepId).ToList();
+                var newLinks = document.Links
+                    .Where(l => l.SourceNodeId != nodeModel.StepId && l.TargetNodeId != nodeModel.StepId)
+                    .ToList();
+                updatedDocument = document with { Steps = newSteps, Links = newLinks };
+                break;
+            }
+            case LinkModel linkModel:
+            {
+                var sourcePort = (linkModel.Source as SinglePortAnchor)?.Port;
+                var targetPort = (linkModel.Target as SinglePortAnchor)?.Port;
+
+                if (sourcePort?.Parent is WorkflowNodeModel sourceNode && targetPort?.Parent is WorkflowNodeModel targetNode)
+                {
+                    var linkToRemove = document.Links.FirstOrDefault(l =>
+                        l.SourceNodeId == sourceNode.StepId &&
+                        l.TargetNodeId == targetNode.StepId &&
+                        l.SourcePortId == sourcePort.Alignment.ToString() &&
+                        l.TargetPortId == targetPort.Alignment.ToString());
+
+                    if (linkToRemove != null)
+                    {
+                        var newLinks = document.Links.Where(l => l.Id != linkToRemove.Id).ToList();
+                        updatedDocument = document with { Links = newLinks };
+                    }
+                }
+                break;
+            }
+        }
+
+        if (updatedDocument != document)
+        {
+            return state with { OpenDocuments = state.OpenDocuments.SetItem(state.ActiveDocumentId, updatedDocument) };
+        }
+
+        return state;
+    }
+
     [ReducerMethod]
     public static EditorState ReduceOpenWorkflowAction(EditorState state, OpenWorkflowAction action)
     {

@@ -7,6 +7,7 @@
 @using WorkflowEditor.Client.Components
 @using WorkflowEditor.Core.Models
 @using WorkflowEditor.Core.Models.Steps
+@using Blazor.Diagrams.Core.Models.Base
 
 <MudAppBar Elevation="1" Dense="true">
     <MudText Typo="Typo.h6" Class="mr-4">Workflow Editor</MudText>
@@ -50,7 +51,7 @@
                     @if (State.Value.ActiveDocumentId == doc.WorkflowId)
                     {
                         <div style="height: calc(100vh - 120px);">
-                            <CanvasTab WorkflowId="@doc.WorkflowId"/>
+                            <CanvasTab WorkflowId="@doc.WorkflowId" OnObjectSelected="@(obj => _selectedObject = obj)"/>
                         </div>
                     }
 
@@ -76,11 +77,12 @@
     [Inject] private IDispatcher Dispatcher { get; set; } = null!;
     
     private EditorContextMenu _contextMenu = null!;
+    private SelectableModel? _selectedObject;
     
     private void ShowContextMenu(MouseEventArgs e)
     {
-        // Передаем координаты мыши в компонент меню
-        _contextMenu.Open(e.ClientX, e.ClientY);
+        // Передаем координаты мыши и выбранный объект в компонент меню
+        _contextMenu.Open(e.ClientX, e.ClientY, _selectedObject);
     }
     
     private int GetActiveIndex()

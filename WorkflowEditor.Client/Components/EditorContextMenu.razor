@@ -1,5 +1,10 @@
 @using MudBlazor
 @using Microsoft.AspNetCore.Components.Web
+@using Blazor.Diagrams.Core.Models.Base
+@using WorkflowEditor.Client.Store.Editor
+@using Fluxor
+
+@inject IDispatcher Dispatcher
 
 @if (IsOpen)
 {
@@ -13,7 +18,7 @@
         <MudPaper Elevation="8" Class="py-1" Style="min-width: 160px;">
             <MudMenuItem OnClick="OnPaste">Вставить</MudMenuItem>
             <MudMenuItem OnClick="OnEdit">Изменить</MudMenuItem>
-            <MudMenuItem OnClick="OnDelete">Удалить</MudMenuItem>
+            <MudMenuItem OnClick="OnDelete" Disabled="@(_selectedObject is null)">Удалить</MudMenuItem>
         </MudPaper>
     </div>
 }
@@ -22,12 +27,13 @@
     public bool IsOpen { get; private set; }
     public double X { get; private set; }
     public double Y { get; private set; }
+    private SelectableModel? _selectedObject;
 
-    // Метод API компонента для вызова извне
-    public void Open(double x, double y)
+    public void Open(double x, double y, SelectableModel? selectedObject = null)
     {
         X = x;
         Y = y;
+        _selectedObject = selectedObject;
         IsOpen = true;
         StateHasChanged();
     }
@@ -35,10 +41,10 @@
     public void CloseMenu()
     {
         IsOpen = false;
+        _selectedObject = null;
         StateHasChanged();
     }
 
-    // Заглушки для будущих экшенов
     private void OnPaste()
     {
         Console.WriteLine("[Контекстное меню] Выбрано: Вставить");
@@ -53,7 +59,10 @@
 
     private void OnDelete()
     {
-        Console.WriteLine("[Контекстное меню] Выбрано: Удалить");
+        if (_selectedObject != null)
+        {
+            Dispatcher.Dispatch(new DeleteSelectedItemAction(_selectedObject));
+        }
         CloseMenu();
     }
 }

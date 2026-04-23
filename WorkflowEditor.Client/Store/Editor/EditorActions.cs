@@ -1,3 +1,5 @@
+using Blazor.Diagrams.Core.Models.Base;
+
 namespace WorkflowEditor.Client.Store.Editor;
 
 using Core.Models;
@@ -39,3 +41,5 @@ public record RenameStepAction(string WorkflowId, string StepId, string NewName)
 
 public record StartEditingStepAction(string StepId);
 public record StopEditingStepAction();
+
+public record DeleteSelectedItemAction(SelectableModel SelectedItem);

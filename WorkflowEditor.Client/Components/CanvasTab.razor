@@ -8,6 +8,7 @@
 @using WorkflowEditor.Client.Store.Editor
 @using WorkflowEditor.Core.Models
 @using Blazor.Diagrams.Core.Models.Base
+@using Microsoft.AspNetCore.Components
 @using WorkflowEditor.Client.Components.Nodes
 @using WorkflowEditor.Core.Models.Steps
 
@@ -44,6 +45,7 @@
     [Inject] private IState<EditorState> State { get; set; } = null!;
     [Inject] private IDispatcher Dispatcher { get; set; } = null!;
     [Parameter] public string WorkflowId { get; set; } = string.Empty;
+    [Parameter] public EventCallback<SelectableModel?> OnObjectSelected { get; set; }
 
     private BlazorDiagram Diagram { get; set; } = new BlazorDiagram();
     
@@ -148,17 +150,24 @@
 
     private void OnDiagramPointerUp(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
-        if (_isSyncing) return;
-        
-        foreach (var node in Diagram.Nodes)
+        if (e.Button is 0) // Левая кнопка мыши
         {
-            if (node is WorkflowNodeModel workflowNode && node.Selected)
+            if (_isSyncing) return;
+        
+            foreach (var node in Diagram.Nodes)
             {
-                if (node.Position.X == 0 && node.Position.Y == 0) continue;
+                if (node is WorkflowNodeModel workflowNode && node.Selected)
+                {
+                    if (node.Position.X == 0 && node.Position.Y == 0) continue;
 
-                var newPos = new CanvasPosition(node.Position.X, node.Position.Y);
-                Dispatcher.Dispatch(new MoveStepAction(WorkflowId, workflowNode.StepId, newPos));
+                    var newPos = new CanvasPosition(node.Position.X, node.Position.Y);
+                    Dispatcher.Dispatch(new MoveStepAction(WorkflowId, workflowNode.StepId, newPos));
+                }
             }
+        }
+        else if (e.Button is 2) // Правая кнопка мыши
+        {
+            OnObjectSelected.InvokeAsync(model as SelectableModel);
         }
     }
 
