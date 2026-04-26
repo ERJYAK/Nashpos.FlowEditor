@@ -45,16 +45,41 @@
     </CascadingValue>
 </div>
 
+@if (_isBoxSelecting)
+{
+    var left = Math.Min(_boxStartScreenX, _boxCurrentScreenX);
+    var top = Math.Min(_boxStartScreenY, _boxCurrentScreenY);
+    var width = Math.Abs(_boxCurrentScreenX - _boxStartScreenX);
+    var height = Math.Abs(_boxCurrentScreenY - _boxStartScreenY);
+    <div style="position: fixed;
+                left: @(left.ToString(System.Globalization.CultureInfo.InvariantCulture))px;
+                top: @(top.ToString(System.Globalization.CultureInfo.InvariantCulture))px;
+                width: @(width.ToString(System.Globalization.CultureInfo.InvariantCulture))px;
+                height: @(height.ToString(System.Globalization.CultureInfo.InvariantCulture))px;
+                background: rgba(50, 103, 255, 0.15);
+                border: 1px dashed #3267ff;
+                pointer-events: none;
+                z-index: 1000;"></div>
+}
+
 @code {
     [Inject] private IState<EditorState> State { get; set; } = null!;
     [Inject] private IDispatcher Dispatcher { get; set; } = null!;
     [Parameter] public string WorkflowId { get; set; } = string.Empty;
-    [Parameter] public EventCallback<SelectableModel?> OnObjectSelected { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<SelectableModel>> OnSelectionChanged { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<SelectableModel>> OnContextMenuRequested { get; set; }
 
     private BlazorDiagram Diagram { get; set; } = new BlazorDiagram();
     
     // Флаг для защиты от рекурсивных вызовов
-    private bool _isSyncing = false; 
+    private bool _isSyncing = false;
+
+    // Состояние рамки выделения (rubber-band)
+    private bool _isBoxSelecting;
+    private double _boxStartScreenX, _boxStartScreenY;
+    private double _boxCurrentScreenX, _boxCurrentScreenY;
+    private double _boxStartCanvasX, _boxStartCanvasY;
+    private bool _boxAdditive;
 
     protected override void OnInitialized()
     {
@@ -65,7 +90,10 @@
         Diagram.RegisterComponent<SubflowNodeModel, SubflowNodeWidget>();
         Diagram.RegisterComponent<BaseNodeModel, BaseNodeWidget>();
         
+        Diagram.PointerDown += OnDiagramPointerDown;
+        Diagram.PointerMove += OnDiagramPointerMove;
         Diagram.PointerUp += OnDiagramPointerUp;
+        Diagram.SelectionChanged += OnDiagramSelectionChanged;
         Diagram.Links.Added += OnLinkAdded;
         Diagram.Links.Removed += OnLinkRemoved;
         
@@ -152,27 +180,140 @@
         return false;
     }
 
+    private IReadOnlyList<SelectableModel> CurrentSelection()
+        => Diagram.GetSelectedModels().OfType<SelectableModel>().ToList();
+
+    private void OnDiagramSelectionChanged(SelectableModel _)
+    {
+        // Срабатывает на каждое изменение выделения; передаём родителю весь актуальный набор.
+        OnSelectionChanged.InvokeAsync(CurrentSelection());
+    }
+
+    private void OnDiagramPointerDown(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
+    {
+        // Запускаем рамку выделения только при ЛКМ по пустому холсту
+        if (e.Button != 0 || model != null) return;
+
+        var canvasPoint = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
+        _isBoxSelecting = true;
+        _boxStartScreenX = e.ClientX;
+        _boxStartScreenY = e.ClientY;
+        _boxCurrentScreenX = e.ClientX;
+        _boxCurrentScreenY = e.ClientY;
+        _boxStartCanvasX = canvasPoint.X;
+        _boxStartCanvasY = canvasPoint.Y;
+        _boxAdditive = e.CtrlKey || e.ShiftKey;
+        StateHasChanged();
+    }
+
+    private void OnDiagramPointerMove(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
+    {
+        if (!_isBoxSelecting) return;
+
+        _boxCurrentScreenX = e.ClientX;
+        _boxCurrentScreenY = e.ClientY;
+        StateHasChanged();
+    }
+    
     private void OnDiagramPointerUp(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
         if (e.Button is 0) // Левая кнопка мыши
         {
+            if (_isBoxSelecting)
+            {
+                FinishBoxSelection(e);
+                return;
+            }
+            
             if (_isSyncing) return;
         
-            foreach (var node in Diagram.Nodes)
-            {
-                if (node is WorkflowNodeModel workflowNode && node.Selected)
-                {
-                    if (node.Position.X == 0 && node.Position.Y == 0) continue;
+            if (!State.Value.OpenDocuments.TryGetValue(WorkflowId, out var document)) return;
 
-                    var newPos = new CanvasPosition(node.Position.X, node.Position.Y);
-                    Dispatcher.Dispatch(new MoveStepAction(WorkflowId, workflowNode.StepId, newPos));
-                }
+            // Собираем все сдвиги выделенных узлов и фиксируем их одним экшеном
+            var moves = new List<(string StepId, CanvasPosition NewPosition)>();
+            foreach (var node in Diagram.Nodes.OfType<WorkflowNodeModel>())
+            {
+                if (node.Position.X == 0 && node.Position.Y == 0) continue;
+                var step = document.Steps.FirstOrDefault(s => s.Id == node.StepId);
+                if (step == null) continue;
+
+                if (step.Position.X == node.Position.X && step.Position.Y == node.Position.Y) continue;
+
+                moves.Add((node.StepId, new CanvasPosition(node.Position.X, node.Position.Y)));
             }
         }
         else if (e.Button is 2) // Правая кнопка мыши
         {
-            OnObjectSelected.InvokeAsync(model as SelectableModel);
+            var selection = CurrentSelection();
+            if (model is SelectableModel target && !selection.Contains(target))
+            {
+                selection = new List<SelectableModel> { target };
+            }
+            OnContextMenuRequested.InvokeAsync(selection);
         }
+    }
+    
+    private void FinishBoxSelection(Blazor.Diagrams.Core.Events.PointerEventArgs e)
+    {
+        var endCanvas = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
+        var minX = Math.Min(_boxStartCanvasX, endCanvas.X);
+        var minY = Math.Min(_boxStartCanvasY, endCanvas.Y);
+        var maxX = Math.Max(_boxStartCanvasX, endCanvas.X);
+        var maxY = Math.Max(_boxStartCanvasY, endCanvas.Y);
+
+        _isBoxSelecting = false;
+
+        // Если пользователь по сути просто кликнул — рамка слишком маленькая, рассматриваем как обычный клик по холсту
+        if (Math.Abs(endCanvas.X - _boxStartCanvasX) < 4 && Math.Abs(endCanvas.Y - _boxStartCanvasY) < 4)
+        {
+            StateHasChanged();
+            return;
+        }
+
+        if (!_boxAdditive)
+        {
+            Diagram.UnselectAll();
+        }
+
+        foreach (var node in Diagram.Nodes)
+        {
+            var size = node.Size;
+            if (size == null) continue; // Узел ещё не отрисован — пропускаем
+
+            var pos = node.Position;
+            var nodeRight = pos.X + size.Width;
+            var nodeBottom = pos.Y + size.Height;
+
+            var intersects = pos.X < maxX && nodeRight > minX && pos.Y < maxY && nodeBottom > minY;
+            if (intersects)
+            {
+                Diagram.SelectModel(node, unselectOthers: false);
+            }
+        }
+
+        // Линки тоже могут попадать в рамку: считаем «попавшим», если центр линии источник→цель внутри рамки
+        foreach (var link in Diagram.Links)
+        {
+            var sourcePort = (link.Source as SinglePortAnchor)?.Port;
+            var targetPort = (link.Target as SinglePortAnchor)?.Port;
+            if (sourcePort?.Parent is not WorkflowNodeModel sourceNode) continue;
+            if (targetPort?.Parent is not WorkflowNodeModel targetNode) continue;
+            if (sourceNode.Size == null || targetNode.Size == null) continue;
+
+            var sx = sourceNode.Position.X + sourceNode.Size.Width / 2;
+            var sy = sourceNode.Position.Y + sourceNode.Size.Height / 2;
+            var tx = targetNode.Position.X + targetNode.Size.Width / 2;
+            var ty = targetNode.Position.Y + targetNode.Size.Height / 2;
+            var midX = (sx + tx) / 2;
+            var midY = (sy + ty) / 2;
+
+            if (midX >= minX && midX <= maxX && midY >= minY && midY <= maxY)
+            {
+                Diagram.SelectModel(link, unselectOthers: false);
+            }
+        }
+
+        StateHasChanged();
     }
 
     private void OnLinkAdded(Blazor.Diagrams.Core.Models.Base.BaseLinkModel link)
@@ -217,7 +358,10 @@
     public void Dispose()
     {
         State.StateChanged -= OnStateChanged;
+        Diagram.PointerDown -= OnDiagramPointerDown;
+        Diagram.PointerMove -= OnDiagramPointerMove;
         Diagram.PointerUp -= OnDiagramPointerUp;
+        Diagram.SelectionChanged -= OnDiagramSelectionChanged;
         Diagram.Links.Added -= OnLinkAdded;
         Diagram.Links.Removed -= OnLinkRemoved;
     }

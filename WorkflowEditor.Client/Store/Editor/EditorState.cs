@@ -18,7 +18,7 @@ public record EditorState
     
     public string? EditingStepId { get; init; }
     
-    public WorkflowStep? CopiedStep { get; init; }
+    public ClipboardPayload? Clipboard { get; init; }
 
     // Требование Fluxor: конструктор без параметров для начального состояния
     public EditorState()
@@ -27,6 +27,11 @@ public record EditorState
         OpenDocuments = ImmutableDictionary<string, WorkflowDocument>.Empty;
         ActiveDocumentId = null;
         EditingStepId = null;
-        CopiedStep = null;
+        Clipboard = null;
     }
 }
+
+public record ClipboardPayload(
+    IReadOnlyList<WorkflowStep> Steps,
+    IReadOnlyList<WorkflowLink> Links,
+    CanvasPosition Origin);

@@ -13,7 +13,9 @@ public record CloseTabAction(string WorkflowId);
 // Мутации графа (работают в контексте ActiveDocumentId)
 public record AddStepAction(string WorkflowId, WorkflowStep Step);
 public record RemoveStepAction(string WorkflowId, string StepId);
-public record MoveStepAction(string WorkflowId, string StepId, CanvasPosition NewPosition);
+public record MoveStepsAction(
+    string WorkflowId,
+    IReadOnlyList<(string StepId, CanvasPosition NewPosition)> Moves);
 
 // Инициирует процесс сохранения
 public record SaveWorkflowAction(string WorkflowId);
@@ -43,7 +45,6 @@ public record RenameStepAction(string WorkflowId, string StepId, string NewName)
 public record StartEditingStepAction(string StepId);
 public record StopEditingStepAction();
 
-public record DeleteSelectedItemAction(SelectableModel SelectedItem);
-
-public record CopySelectedItemAction(SelectableModel SelectedItem);
-public record PasteItemAction(double X, double Y);
+public record CopySelectionAction(IReadOnlyList<SelectableModel> Selected);
+public record PasteClipboardAction(double X, double Y);
+public record DeleteSelectionAction(IReadOnlyList<SelectableModel> Selected);

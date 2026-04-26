@@ -4,7 +4,7 @@
 @using WorkflowEditor.Client.Store.Editor
 @using Fluxor
 @using WorkflowEditor.Client.Diagram.Nodes
-@using WorkflowEditor.Client.Store.Editor
+@using Blazor.Diagrams.Core.Models
 
 @inherits Fluxor.Blazor.Web.Components.FluxorComponent
 
@@ -24,7 +24,7 @@
             <MudMenuItem OnClick="OnCopy" Disabled="@(!IsCopyable())">Копировать</MudMenuItem>
             <MudMenuItem OnClick="OnPaste" Disabled="@(!IsPastable())">Вставить</MudMenuItem>
             <MudMenuItem OnClick="OnEdit">Изменить</MudMenuItem>
-            <MudMenuItem OnClick="OnDelete" Disabled="@(_selectedObject is null)">Удалить</MudMenuItem>
+            <MudMenuItem OnClick="OnDelete" Disabled="@(_selection.Count == 0)">Удалить</MudMenuItem>v
         </MudPaper>
     </div>
 }
@@ -33,13 +33,13 @@
     public bool IsOpen { get; private set; }
     public double X { get; private set; }
     public double Y { get; private set; }
-    private SelectableModel? _selectedObject;
+    private IReadOnlyList<SelectableModel> _selection = Array.Empty<SelectableModel>();
 
-    public void Open(double x, double y, SelectableModel? selectedObject = null)
+    public void Open(double x, double y, IReadOnlyList<SelectableModel> selection)
     {
         X = x;
         Y = y;
-        _selectedObject = selectedObject;
+        _selection = selection ?? Array.Empty<SelectableModel>();
         IsOpen = true;
         StateHasChanged();
     }
@@ -47,25 +47,26 @@
     public void CloseMenu()
     {
         IsOpen = false;
-        _selectedObject = null;
+        _selection = Array.Empty<SelectableModel>();
         StateHasChanged();
     }
 
     private bool IsCopyable()
     {
-        return _selectedObject is WorkflowNodeModel;
+        return _selection.OfType<WorkflowNodeModel>().Any() ||
+               _selection.OfType<LinkModel>().Any();
     }
 
     private bool IsPastable()
     {
-        return EditorState.Value.CopiedStep != null;
+        return EditorState.Value.Clipboard != null;
     }
 
     private void OnCopy()
     {
         if (IsCopyable())
         {
-            Dispatcher.Dispatch(new CopySelectedItemAction(_selectedObject!));
+            Dispatcher.Dispatch(new CopySelectionAction(_selection));
         }
         CloseMenu();
     }
@@ -74,7 +75,7 @@
     {
         if (IsPastable())
         {
-            Dispatcher.Dispatch(new PasteItemAction(X, Y));
+            Dispatcher.Dispatch(new PasteClipboardAction(X, Y));
         }
         CloseMenu();
     }
@@ -87,9 +88,9 @@
 
     private void OnDelete()
     {
-        if (_selectedObject != null)
+        if (_selection.Count > 0)
         {
-            Dispatcher.Dispatch(new DeleteSelectedItemAction(_selectedObject));
+            Dispatcher.Dispatch(new DeleteSelectionAction(_selection));
         }
         CloseMenu();
     }

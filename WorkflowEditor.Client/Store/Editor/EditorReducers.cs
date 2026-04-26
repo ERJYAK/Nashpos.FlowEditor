@@ -12,102 +12,201 @@ using WorkflowEditor.Core.Models;
 public static class EditorReducers
 {
     [ReducerMethod]
-    public static EditorState ReduceCopySelectedItemAction(EditorState state, CopySelectedItemAction action)
+    public static EditorState ReduceCopySelectionAction(EditorState state, CopySelectionAction action)
     {
-        if (action.SelectedItem is WorkflowNodeModel nodeModel)
-        {
-            if (state.ActiveDocumentId != null && state.OpenDocuments.TryGetValue(state.ActiveDocumentId, out var document))
-            {
-                var stepToCopy = document.Steps.FirstOrDefault(s => s.Id == nodeModel.StepId);
-                return state with { CopiedStep = stepToCopy };
-            }
-        }
-        return state;
-    }
-
-    [ReducerMethod]
-    public static EditorState ReducePasteItemAction(EditorState state, PasteItemAction action)
-    {
-        if (state.CopiedStep == null || state.ActiveDocumentId == null || !state.OpenDocuments.TryGetValue(state.ActiveDocumentId, out var document))
+        if (state.ActiveDocumentId == null ||
+            !state.OpenDocuments.TryGetValue(state.ActiveDocumentId, out var document))
         {
             return state;
         }
 
-        var newId = Guid.NewGuid().ToString();
-        
-        // КРИТИЧЕСКИЙ ФИКС: Явно указываем базовый тип WorkflowStep? вместо var
-        WorkflowStep? pastedStep = state.CopiedStep switch
+        var selectedStepIds = action.Selected
+            .OfType<WorkflowNodeModel>()
+            .Select(n => n.StepId)
+            .ToHashSet();
+
+        var copiedSteps = document.Steps
+            .Where(s => selectedStepIds.Contains(s.Id))
+            .ToList();
+
+        if (copiedSteps.Count == 0 && !action.Selected.OfType<LinkModel>().Any())
         {
-            SubflowStep subflow => subflow with { Id = newId, Position = new CanvasPosition(action.X, action.Y), Name = subflow.Name + " (Copy)" },
-            BaseStep baseStep => baseStep with { Id = newId, Position = new CanvasPosition(action.X, action.Y), Name = baseStep.Name + " (Copy)" },
-            _ => null
+            return state;
+        }
+
+        var copiedLinkIds = new HashSet<string>();
+        var copiedLinks = new List<WorkflowLink>();
+
+        // Линки между выделенными узлами
+        foreach (var link in document.Links)
+        {
+            if (selectedStepIds.Contains(link.SourceNodeId) &&
+                selectedStepIds.Contains(link.TargetNodeId))
+            {
+                copiedLinks.Add(link);
+                copiedLinkIds.Add(link.Id);
+            }
+        }
+
+        // Явно выделенные линки (даже если один из их узлов не выделен — копируем, если оба узла существуют)
+        foreach (var linkModel in action.Selected.OfType<LinkModel>())
+        {
+            var stateLink = ResolveStateLink(linkModel, document);
+            if (stateLink != null && copiedLinkIds.Add(stateLink.Id))
+            {
+                copiedLinks.Add(stateLink);
+            }
+        }
+
+        var origin = copiedSteps.Count > 0
+            ? new CanvasPosition(
+                copiedSteps.Min(s => s.Position.X),
+                copiedSteps.Min(s => s.Position.Y))
+            : new CanvasPosition(0, 0);
+
+        return state with
+        {
+            Clipboard = new ClipboardPayload(copiedSteps, copiedLinks, origin)
         };
-
-        if (pastedStep != null)
-        {
-            // КРИТИЧЕСКИЙ ФИКС 2: Клонируем список перед добавлением, чтобы сохранить иммутабельность
-            var newSteps = document.Steps.ToList();
-            newSteps.Add(pastedStep);
-            
-            var updatedDocument = document with { Steps = newSteps };
-            return state with { OpenDocuments = state.OpenDocuments.SetItem(state.ActiveDocumentId, updatedDocument) };
-        }
-
-        return state;
     }
-    
+
     [ReducerMethod]
-    public static EditorState ReduceDeleteSelectedItemAction(EditorState state, DeleteSelectedItemAction action)
+    public static EditorState ReducePasteClipboardAction(EditorState state, PasteClipboardAction action)
     {
-        if (state.ActiveDocumentId == null || !state.OpenDocuments.TryGetValue(state.ActiveDocumentId, out var document))
+        if (state.Clipboard == null ||
+            state.ActiveDocumentId == null ||
+            !state.OpenDocuments.TryGetValue(state.ActiveDocumentId, out var document))
         {
             return state;
         }
 
-        var updatedDocument = document;
+        var clipboard = state.Clipboard;
+        var idMap = new Dictionary<string, string>();
+        var newSteps = document.Steps.ToList();
 
-        switch (action.SelectedItem)
+        foreach (var step in clipboard.Steps)
         {
-            case WorkflowNodeModel nodeModel:
-            {
-                var newSteps = document.Steps.Where(s => s.Id != nodeModel.StepId).ToList();
-                var newLinks = document.Links
-                    .Where(l => l.SourceNodeId != nodeModel.StepId && l.TargetNodeId != nodeModel.StepId)
-                    .ToList();
-                updatedDocument = document with { Steps = newSteps, Links = newLinks };
-                break;
-            }
-            case LinkModel linkModel:
-            {
-                var sourcePort = (linkModel.Source as SinglePortAnchor)?.Port;
-                var targetPort = (linkModel.Target as SinglePortAnchor)?.Port;
+            var newId = Guid.NewGuid().ToString();
+            idMap[step.Id] = newId;
 
-                if (sourcePort?.Parent is WorkflowNodeModel sourceNode && targetPort?.Parent is WorkflowNodeModel targetNode)
+            var newPosition = new CanvasPosition(
+                step.Position.X - clipboard.Origin.X + action.X,
+                step.Position.Y - clipboard.Origin.Y + action.Y);
+
+            WorkflowStep? cloned = step switch
+            {
+                SubflowStep subflow => subflow with
                 {
-                    var linkToRemove = document.Links.FirstOrDefault(l =>
-                        l.SourceNodeId == sourceNode.StepId &&
-                        l.TargetNodeId == targetNode.StepId &&
-                        l.SourcePortId == sourcePort.Alignment.ToString() &&
-                        l.TargetPortId == targetPort.Alignment.ToString());
+                    Id = newId,
+                    Name = subflow.Name + " (Copy)",
+                    Position = newPosition
+                },
+                BaseStep baseStep => baseStep with
+                {
+                    Id = newId,
+                    Name = baseStep.Name + " (Copy)",
+                    Position = newPosition
+                },
+                _ => null
+            };
 
-                    if (linkToRemove != null)
-                    {
-                        var newLinks = document.Links.Where(l => l.Id != linkToRemove.Id).ToList();
-                        updatedDocument = document with { Links = newLinks };
-                    }
-                }
-                break;
+            if (cloned != null)
+            {
+                newSteps.Add(cloned);
             }
         }
 
-        if (updatedDocument != document)
+        var newLinks = document.Links.ToList();
+        foreach (var link in clipboard.Links)
         {
-            return state with { OpenDocuments = state.OpenDocuments.SetItem(state.ActiveDocumentId, updatedDocument) };
+            if (!idMap.TryGetValue(link.SourceNodeId, out var newSourceId) ||
+                !idMap.TryGetValue(link.TargetNodeId, out var newTargetId))
+            {
+                // Один из концов линка не входит в буфер — пропускаем, чтобы не тянуть «висящие» связи
+                continue;
+            }
+
+            newLinks.Add(new WorkflowLink
+            {
+                Id = Guid.NewGuid().ToString(),
+                SourceNodeId = newSourceId,
+                SourcePortId = link.SourcePortId,
+                TargetNodeId = newTargetId,
+                TargetPortId = link.TargetPortId,
+                Label = link.Label
+            });
+        }
+        
+        var updatedDocument = document with { Steps = newSteps, Links = newLinks };
+        return state with
+        {
+            OpenDocuments = state.OpenDocuments.SetItem(state.ActiveDocumentId, updatedDocument)
+        };
+    }
+
+    [ReducerMethod]
+    public static EditorState ReduceDeleteSelectionAction(EditorState state, DeleteSelectionAction action)
+    {
+        if (state.ActiveDocumentId == null ||
+            !state.OpenDocuments.TryGetValue(state.ActiveDocumentId, out var document))
+        {
+            return state;
         }
 
-        return state;
+        var nodeIds = action.Selected
+            .OfType<WorkflowNodeModel>()
+            .Select(n => n.StepId)
+            .ToHashSet();
+
+        var explicitLinkIds = new HashSet<string>();
+
+        foreach (var linkModel in action.Selected.OfType<LinkModel>())
+        {
+            var stateLink = ResolveStateLink(linkModel, document);
+            if (stateLink != null)
+                explicitLinkIds.Add(stateLink.Id);
+        }
+        
+        if (nodeIds.Count == 0 && explicitLinkIds.Count == 0)
+        {
+            return state;
+        }
+        
+        var newSteps = document.Steps
+            .Where(s => !nodeIds.Contains(s.Id))
+            .ToList();
+
+        var newLinks = document.Links
+            .Where(l =>
+                !nodeIds.Contains(l.SourceNodeId) &&
+                !nodeIds.Contains(l.TargetNodeId) &&
+                !explicitLinkIds.Contains(l.Id))
+            .ToList();
+
+        var updatedDocument = document with { Steps = newSteps, Links = newLinks };
+        return state with
+        {
+            OpenDocuments = state.OpenDocuments.SetItem(state.ActiveDocumentId, updatedDocument)
+        };
     }
-    
+
+    private static WorkflowLink? ResolveStateLink(LinkModel linkModel, WorkflowDocument document)
+    {
+        var sourcePort = (linkModel.Source as SinglePortAnchor)?.Port;
+        var targetPort = (linkModel.Target as SinglePortAnchor)?.Port;
+
+        if (sourcePort?.Parent is WorkflowNodeModel sourceNode &&
+            targetPort?.Parent is WorkflowNodeModel targetNode)
+        {
+            return document.Links.FirstOrDefault(l =>
+                l.SourceNodeId == sourceNode.StepId &&
+                l.TargetNodeId == targetNode.StepId &&
+                l.SourcePortId == sourcePort.Alignment.ToString() &&
+                l.TargetPortId == targetPort.Alignment.ToString());
+        }
+        return null;
+    }
+
     [ReducerMethod]
     public static EditorState ReduceOpenWorkflowAction(EditorState state, OpenWorkflowAction action)
     {
@@ -234,20 +333,26 @@ public static class EditorReducers
     }
     
     [ReducerMethod]
-    public static EditorState ReduceMoveStepAction(EditorState state, MoveStepAction action)
+    public static EditorState ReduceMoveStepsAction(EditorState state, MoveStepsAction action)
     {
+        if (action.Moves.Count == 0) return state;
         if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document)) return state;
+        var moves = action.Moves.ToDictionary(m => m.StepId, m => m.NewPosition);
 
-        // Клонируем список шагов и обновляем координаты нужного узла
-        var newSteps = document.Steps.Select(s => 
+        var changed = false;
+        var newSteps = document.Steps.Select(s =>
         {
-            if (s.Id != action.StepId) return s;
-            
-            // Используем 'with' для сохранения иммутабельности конкретного типа
-            if (s is SubflowStep sub) return sub with { Position = action.NewPosition };
-            if (s is BaseStep b) return b with { Position = action.NewPosition };
+            if (!moves.TryGetValue(s.Id, out var newPosition)) return s;
+            if (s.Position == newPosition) return s;
+
+            changed = true;
+
+            if (s is SubflowStep sub) return sub with { Position = newPosition };
+            if (s is BaseStep b) return b with { Position = newPosition };
             return s;
         }).ToList();
+        
+        if (!changed) return state;
 
         var updatedDocument = document with { Steps = newSteps };
         return state with { OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, updatedDocument) };

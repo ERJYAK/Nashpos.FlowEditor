@@ -51,7 +51,9 @@
                     @if (State.Value.ActiveDocumentId == doc.WorkflowId)
                     {
                         <div style="height: calc(100vh - 120px);">
-                            <CanvasTab WorkflowId="@doc.WorkflowId" OnObjectSelected="@(obj => _selectedObject = obj)"/>
+                            <CanvasTab WorkflowId="@doc.WorkflowId"
+                                       OnSelectionChanged="@(s => _selection = s)"
+                                       OnContextMenuRequested="@(s => _contextMenuTarget = s)"/>
                         </div>
                     }
 
@@ -77,12 +79,16 @@
     [Inject] private IDispatcher Dispatcher { get; set; } = null!;
     
     private EditorContextMenu _contextMenu = null!;
-    private SelectableModel? _selectedObject;
+    private IReadOnlyList<SelectableModel> _selection = Array.Empty<SelectableModel>();
+    private IReadOnlyList<SelectableModel>? _contextMenuTarget;
     
     private void ShowContextMenu(MouseEventArgs e)
     {
-        // Передаем координаты мыши и выбранный объект в компонент меню
-        _contextMenu.Open(e.ClientX, e.ClientY, _selectedObject);
+        // CanvasTab сообщает о правом клике с учётом текущего множественного выделения,
+        // если такого сигнала не было — берём актуальный набор выделения.
+        var target = _contextMenuTarget ?? _selection;
+        _contextMenu.Open(e.ClientX, e.ClientY, target);
+        _contextMenuTarget = null;
     }
     
     private int GetActiveIndex()
