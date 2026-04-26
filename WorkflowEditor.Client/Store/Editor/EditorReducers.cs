@@ -358,6 +358,27 @@ public static class EditorReducers
         return state with { OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, updatedDocument) };
     }
     
+    [ReducerMethod]
+    public static EditorState ReduceRemoveStepAction(EditorState state, RemoveStepAction action)
+    {
+        if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document)) 
+            return state;
+
+        // Удаляем сам шаг
+        var newSteps = document.Steps.Where(s => s.Id != action.StepId).ToList();
+    
+        // Зачищаем все связанные линки (страховка на уровне источника истины)
+        var newLinks = document.Links.Where(l => 
+            l.SourceNodeId != action.StepId && l.TargetNodeId != action.StepId).ToList();
+
+        var updatedDocument = document with { Steps = newSteps, Links = newLinks };
+    
+        return state with 
+        { 
+            OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, updatedDocument) 
+        };
+    }
+    
     // Добавь этот метод в EditorReducers.cs
     [ReducerMethod]
     public static EditorState ReduceRenameStepAction(EditorState state, RenameStepAction action)

@@ -3,6 +3,7 @@
 @using Blazor.Diagrams
 @using Blazor.Diagrams.Components
 @using Blazor.Diagrams.Core.Anchors
+@using Blazor.Diagrams.Core.Models
 @using Fluxor
 @using WorkflowEditor.Client.Diagram.Nodes
 @using WorkflowEditor.Client.Store.Editor
@@ -82,6 +83,10 @@
     private double _boxCurrentScreenX, _boxCurrentScreenY;
     private double _boxStartCanvasX, _boxStartCanvasY;
     private bool _boxAdditive;
+    
+    // Последние координаты пользовательского курсора
+    private double _lastClientX;
+    private double _lastClientY;
 
     // Состояние панорамирования средней кнопкой мыши
     private bool _isMmbPanning;
@@ -99,9 +104,11 @@
         Diagram.PointerDown += OnDiagramPointerDown;
         Diagram.PointerMove += OnDiagramPointerMove;
         Diagram.PointerUp += OnDiagramPointerUp;
+        Diagram.KeyDown += OnDiagramKeyDown;
         Diagram.SelectionChanged += OnDiagramSelectionChanged;
         Diagram.Links.Added += OnLinkAdded;
         Diagram.Links.Removed += OnLinkRemoved;
+        Diagram.Nodes.Removed += OnNodeRemoved;
         
         SyncStateToDiagram();
     }
@@ -224,6 +231,10 @@
 
     private void OnDiagramPointerMove(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
+        // Сохраняем последние координаты для Ctrl+V
+        _lastClientX = e.ClientX;
+        _lastClientY = e.ClientY;
+        
         if (_isMmbPanning)
         {
             Diagram.UpdatePan(e.ClientX - _mmbPanLastX, e.ClientY - _mmbPanLastY);
@@ -282,6 +293,37 @@
             }
             var canvasPoint = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
             OnContextMenuRequested.InvokeAsync((selection, canvasPoint.X, canvasPoint.Y));
+        }
+    }
+    
+    private void OnDiagramKeyDown(Blazor.Diagrams.Core.Events.KeyboardEventArgs e)
+    {
+        // Если сейчас редактируется имя узла, игнорируем нажатия клавиш на холсте
+        if (State.Value.EditingStepId != null) return;
+
+        // Проверяем нажатие Ctrl
+        if (e.CtrlKey)
+        {
+            // Логика копирования (Ctrl+C)
+            if (e.Key == "c" || e.Key == "C" || e.Code == "KeyC")
+            {
+                var selection = CurrentSelection();
+                // Проверяем, есть ли что копировать (узлы или линки)
+                if (selection.OfType<WorkflowNodeModel>().Any() || selection.OfType<LinkModel>().Any())
+                {
+                    Dispatcher.Dispatch(new CopySelectionAction(selection));
+                }
+            }
+            // Логика вставки (Ctrl+V)
+            else if (e.Key == "v" || e.Key == "V" || e.Code == "KeyV")
+            {
+                if (State.Value.Clipboard != null)
+                {
+                    // Переводим экранные координаты курсора мыши в координаты холста (с учетом зума и панорамирования)
+                    var canvasPoint = Diagram.GetRelativeMousePoint(_lastClientX, _lastClientY);
+                    Dispatcher.Dispatch(new PasteClipboardAction(canvasPoint.X, canvasPoint.Y));
+                }
+            }
         }
     }
     
@@ -387,6 +429,18 @@
         }
     }
     
+    private void OnNodeRemoved(NodeModel node)
+    {
+        // Защита от зацикливания: игнорируем удаление, если оно вызвано синхронизацией стейта
+        if (_isSyncing) return;
+    
+        if (node is WorkflowNodeModel wNode)
+        {
+            // Отправляем сигнал во Fluxor для удаления из стейта
+            Dispatcher.Dispatch(new RemoveStepAction(WorkflowId, wNode.StepId));
+        }
+    }
+    
     public (double X, double Y)? GetViewportCenter()
     {
         if (Diagram.Container == null) return null;
@@ -402,8 +456,10 @@
         Diagram.PointerDown -= OnDiagramPointerDown;
         Diagram.PointerMove -= OnDiagramPointerMove;
         Diagram.PointerUp -= OnDiagramPointerUp;
+        Diagram.KeyDown -= OnDiagramKeyDown;
         Diagram.SelectionChanged -= OnDiagramSelectionChanged;
         Diagram.Links.Added -= OnLinkAdded;
         Diagram.Links.Removed -= OnLinkRemoved;
+        Diagram.Nodes.Removed -= OnNodeRemoved;
     }
 }
