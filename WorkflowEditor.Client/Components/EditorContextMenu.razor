@@ -5,6 +5,9 @@
 @using Fluxor
 @using WorkflowEditor.Client.Diagram.Nodes
 @using Blazor.Diagrams.Core.Models
+@* Добавлены using для доступа к моделям шагов и позиции *@
+@using WorkflowEditor.Core.Models
+@using WorkflowEditor.Core.Models.Steps
 
 @inherits Fluxor.Blazor.Web.Components.FluxorComponent
 
@@ -21,10 +24,15 @@
 
     <div style="position: fixed; top: @(Y)px; left: @(X)px; z-index: 9999;">
         <MudPaper Elevation="8" Class="py-1" Style="min-width: 160px;">
+            @* Новые пункты меню для добавления узлов *@
+            <MudMenuItem OnClick="OnAddBaseStep" Disabled="@(EditorState.Value.ActiveDocumentId == null)">Добавить базовый шаг</MudMenuItem>
+            <MudMenuItem OnClick="OnAddSubflowStep" Disabled="@(EditorState.Value.ActiveDocumentId == null)">Добавить шаг subflow</MudMenuItem>
+            <MudDivider />
             <MudMenuItem OnClick="OnCopy" Disabled="@(!IsCopyable())">Копировать</MudMenuItem>
             <MudMenuItem OnClick="OnPaste" Disabled="@(!IsPastable())">Вставить</MudMenuItem>
             <MudMenuItem OnClick="OnEdit">Изменить</MudMenuItem>
-            <MudMenuItem OnClick="OnDelete" Disabled="@(_selection.Count == 0)">Удалить</MudMenuItem>v
+            @* Удалили случайный символ 'v' в конце *@
+            <MudMenuItem OnClick="OnDelete" Disabled="@(_selection.Count == 0)">Удалить</MudMenuItem>
         </MudPaper>
     </div>
 }
@@ -66,6 +74,43 @@
     {
         return EditorState.Value.Clipboard != null;
     }
+
+    // --- Новые обработчики для добавления шагов ---
+    
+    private void OnAddBaseStep()
+    {
+        var activeId = EditorState.Value.ActiveDocumentId;
+        if (activeId != null)
+        {
+            var newStep = new BaseStep
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Новая задача",
+                Position = new CanvasPosition(_pasteCanvasX, _pasteCanvasY)
+            };
+            Dispatcher.Dispatch(new AddStepAction(activeId, newStep));
+        }
+        CloseMenu();
+    }
+
+    private void OnAddSubflowStep()
+    {
+        var activeId = EditorState.Value.ActiveDocumentId;
+        if (activeId != null)
+        {
+            var newStep = new SubflowStep
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Новый подпроцесс",
+                Position = new CanvasPosition(_pasteCanvasX, _pasteCanvasY),
+                SubflowId = Guid.NewGuid().ToString() // Обязательная инициализация
+            };
+            Dispatcher.Dispatch(new AddStepAction(activeId, newStep));
+        }
+        CloseMenu();
+    }
+
+    // --- Существующие обработчики ---
 
     private void OnCopy()
     {

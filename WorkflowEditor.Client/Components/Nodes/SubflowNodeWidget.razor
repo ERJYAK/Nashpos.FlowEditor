@@ -1,17 +1,42 @@
 @using Blazor.Diagrams.Components.Renderers
 @using Fluxor
+@using Microsoft.AspNetCore.Components.Web
 @using WorkflowEditor.Client.Diagram.Nodes
 @using MudBlazor
 @using WorkflowEditor.Client.Store.Editor
 
 <MudPaper Elevation="4" 
-          Class="@(Node.Selected ? "pa-4 border-2 border-solid mud-border-primary" : "pa-4")"
-          Style="min-width: 200px; cursor: pointer; position: relative; overflow: visible;">
+          Class="@(Node.Selected ? "pa-4 selected-node" : "pa-4")"
+          Style="min-width: 200px; cursor: pointer; position: relative; overflow: visible;"
+          @ondblclick="StartEditing"
+          @onclick:stopPropagation="true">
     <MudStack Spacing="1">
         <MudStack Row="true" AlignItems="AlignItems.Center">
-            <MudIcon Icon="@Icons.Material.Filled.AccountTree" Color="Color.Primary" />
-            <MudText Typo="Typo.subtitle2">@Node.Title</MudText>
+            <MudIcon Icon="@Icons.Material.Filled.Lan" Color="Color.Primary" />
+            @if (State.Value.EditingStepId == Node.StepId)
+            {
+                <div @onkeydown:stopPropagation="true"
+                     @onkeyup:stopPropagation="true"
+                     @onpointerdown:stopPropagation="true"
+                     @onpointermove:stopPropagation="true"
+                     @onpointerup:stopPropagation="true"
+                     @onmousedown:stopPropagation="true"
+                     @onmousemove:stopPropagation="true">
+
+                    <MudTextField @bind-Value="_editingName"
+                                  Immediate="true"
+                                  AutoFocus="true"
+                                  Margin="Margin.Dense"
+                                  OnKeyDown="HandleKeyDown"
+                                  OnBlur="SaveAndStopEditing" />
+                </div>
+            }
+            else
+            {
+                <MudText Typo="Typo.subtitle2">@CurrentName</MudText>
+            }
         </MudStack>
+        
         <MudDivider />
         <MudText Typo="Typo.caption" Color="Color.Secondary">
             ID: @Node.SubflowId
@@ -33,14 +58,52 @@
 
 @code {
     [Parameter] public SubflowNodeModel Node { get; set; } = null!;
+    [Inject] private IState<EditorState> State { get; set; } = null!;
     [Inject] private IDispatcher Dispatcher { get; set; } = null!;
+
+    private string _editingName = string.Empty;
+
+    private string CurrentName
+    {
+        get
+        {
+            if (State.Value.ActiveDocumentId != null &&
+                State.Value.OpenDocuments.TryGetValue(State.Value.ActiveDocumentId, out var doc))
+            {
+                var step = doc.Steps.FirstOrDefault(s => s.Id == Node.StepId);
+                if (step != null) return step.Name;
+            }
+            return Node.Title;
+        }
+    }
+
+    private void StartEditing()
+    {
+        _editingName = CurrentName;
+        Dispatcher.Dispatch(new StartEditingStepAction(Node.StepId));
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") SaveAndStopEditing();
+        else if (e.Key == "Escape") CancelEditing();
+    }
+
+    private void CancelEditing() => Dispatcher.Dispatch(new StopEditingStepAction());
+
+    private void SaveAndStopEditing()
+    {
+        var activeWorkflowId = State.Value.ActiveDocumentId;
+        if (!string.IsNullOrWhiteSpace(_editingName) && activeWorkflowId != null)
+        {
+            Dispatcher.Dispatch(new RenameStepAction(activeWorkflowId, Node.StepId, _editingName));
+        }
+        Dispatcher.Dispatch(new StopEditingStepAction());
+    }
 
     private void OnOpenSubflow()
     {
-        // Вместо Drill-down (замены текущего холста), мы инициируем открытие новой вкладки
-        // Это соответствует твоему требованию о переключении между холстами [cite: 78, 79]
-        // Dispatcher.Dispatch(new LoadWorkflowAction(Node.SubflowId));
-        
         Dispatcher.Dispatch(new LoadWorkflowAction(Node.SubflowId));
     }
+   
 }

@@ -19,14 +19,16 @@
          Создать процесс
     </MudButton>
 
-    <MudButton Variant="Variant.Filled" 
-               Color="Color.Secondary" 
-               Class="ml-2"
-               StartIcon="@Icons.Material.Filled.AddBox"
-               Disabled="@(State.Value.ActiveDocumentId == null)"
-               OnClick="AddStepToActive">
-        Добавить шаг
-    </MudButton>
+    <MudMenu Label="Добавить шаг" 
+             Variant="Variant.Filled" 
+             Color="Color.Secondary" 
+             Class="ml-2"
+             StartIcon="@Icons.Material.Filled.AddBox"
+             EndIcon="@Icons.Material.Filled.KeyboardArrowDown"
+             Disabled="@(State.Value.ActiveDocumentId == null)">
+        <MudMenuItem OnClick="@(() => AddStepToActive("base"))">Базовый шаг</MudMenuItem>
+        <MudMenuItem OnClick="@(() => AddStepToActive("subflow"))">Шаг subflow</MudMenuItem>
+    </MudMenu>
     
     <MudSpacer />
 </MudAppBar>
@@ -122,7 +124,7 @@
         }
     }
     
-    private void AddStepToActive()
+    private void AddStepToActive(string type)
     {
         var activeId = State.Value.ActiveDocumentId;
         if (activeId == null) return;
@@ -133,12 +135,24 @@
             ? new CanvasPosition(center.Value.X + offset, center.Value.Y + offset)
             : new CanvasPosition(100 + offset, 100 + offset);
 
-        Dispatcher.Dispatch(new AddStepAction(activeId, new BaseStep
+        WorkflowStep newStep = type switch
         {
-            Id = Guid.NewGuid().ToString(),
-            Name = "Новая задача",
-            Position = pos
-        }));
+            "subflow" => new SubflowStep
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Новый подпроцесс",
+                Position = pos,
+                SubflowId = Guid.NewGuid().ToString() // Обязательная инициализация для контракта
+            },
+            _ => new BaseStep
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Новая задача",
+                Position = pos
+            }
+        };
+
+        Dispatcher.Dispatch(new AddStepAction(activeId, newStep));
     }
     
     private void CreateNewWorkflow()
