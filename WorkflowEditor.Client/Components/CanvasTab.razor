@@ -76,6 +76,7 @@
 
     // Флаг для защиты от рекурсивных вызовов
     private bool _isSyncing = false;
+    private bool _isInitialSync = true;
 
     // Состояние рамки выделения (rubber-band)
     private bool _isBoxSelecting;
@@ -123,6 +124,9 @@
         _isSyncing = true;
         InvokeAsync(() => 
         {
+            // Список для сбора свежесозданных визуальных элементов (узлов и связей)
+            var newlyAddedModels = new List<SelectableModel>();
+            
             // 1. Синхронизация узлов
             var nodesToRemove = Diagram.Nodes.OfType<WorkflowNodeModel>()
                 .Where(n => document.Steps.All(s => s.Id != n.StepId)).ToList();
@@ -139,7 +143,11 @@
                         BaseStep task       => new BaseNodeModel(task),
                         _                   => null
                     };
-                    if (newNode != null) Diagram.Nodes.Add(newNode);
+                    if (newNode != null)
+                    {
+                        Diagram.Nodes.Add(newNode);
+                        newlyAddedModels.Add(newNode); // Собираем добавленный узел
+                    }
                 }
                 else if (existingNode.Title != step.Name)
                 {
@@ -174,6 +182,32 @@
                 }
             }
 
+            // --- НОВАЯ ЛОГИКА ВЫДЕЛЕНИЯ ---
+            if (!_isInitialSync && newlyAddedModels.Count > 0)
+            {
+                // Отвязываем логику выделения от текущего синхронного потока событий.
+                // Это решает 2 проблемы:
+                // 1. Дает Blazor время физически отрендерить компоненты узлов в DOM.
+                // 2. Ждет завершения всплытия событий браузера (например, MouseUp от контекстного меню), 
+                //    которое иначе заставит глобальный обработчик движка сбросить наше выделение.
+                _ = Task.Run(async () => 
+                {
+                    await Task.Delay(50); // 50мс достаточно для завершения цикла рендеринга и очистки Call Stack
+                
+                    await InvokeAsync(() => 
+                    {
+                        Diagram.UnselectAll(); // Снимаем выделение со старых объектов
+                        foreach (var model in newlyAddedModels)
+                        {
+                            Diagram.SelectModel(model, unselectOthers: false); // Выделяем только вставленные
+                        }
+                        StateHasChanged(); // Принудительно обновляем UI для отображения синих рамок
+                    });
+                });
+            }
+            
+            _isInitialSync = false; // Первая синхронизация пройдена
+            
             StateHasChanged();
             _isSyncing = false;
         });
