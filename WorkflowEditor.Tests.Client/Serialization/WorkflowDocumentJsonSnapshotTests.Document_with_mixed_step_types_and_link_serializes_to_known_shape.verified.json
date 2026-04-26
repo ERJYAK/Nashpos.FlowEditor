@@ -1,0 +1,36 @@
+﻿{
+  "workflowId": "wf-snap",
+  "name": "snapshot",
+  "steps": [
+    {
+      "type": "base",
+      "id": "step-base",
+      "name": "Base",
+      "position": {
+        "X": 10,
+        "Y": 20
+      }
+    },
+    {
+      "type": "subflow",
+      "subflowId": "sub-1",
+      "id": "step-sub",
+      "name": "Subflow",
+      "position": {
+        "X": 100,
+        "Y": 200
+      }
+    }
+  ],
+  "links": [
+    {
+      "id": "link-1",
+      "sourceNodeId": "step-base",
+      "sourcePortId": "Right",
+      "targetNodeId": "step-sub",
+      "targetPortId": "Left",
+      "label": "next"
+    }
+  ],
+  "CreatedAt": "2024-01-02T03:04:05Z"
+}
