@@ -33,7 +33,9 @@ public record LoadWorkflowSuccessAction(WorkflowDocument Document);
 // Ошибка загрузки
 public record LoadWorkflowFailedAction(string ErrorMessage);
 
-public record CreateNewWorkflowAction(string TriggerSource = "UI");
+// Сигнал «пользователь нажал Создать процесс» — обрабатывается эффектом,
+// который сам создаёт документ и диспатчит OpenWorkflowAction.
+public record CreateWorkflowRequestedAction;
 
 // Мутации связей (линков)
 public record AddLinkAction(string WorkflowId, WorkflowLink Link);

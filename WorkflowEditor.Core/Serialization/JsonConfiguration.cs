@@ -9,15 +9,15 @@ public static class JsonConfiguration
     {
         return new JsonSerializerOptions
         {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             PropertyNameCaseInsensitive = true,
-            WriteIndented = true, // Для красивого форматирования, если нужно смотреть глазами
-            
-            // Критически важная настройка для полиморфизма:
-            // Позволяет парсеру искать поле 'type' в любом месте объекта, а не только первым
+            WriteIndented = true,
+
+            // Полиморфизм: разрешаем найти поле "type" в любом месте объекта
             AllowOutOfOrderMetadataProperties = true,
-            
+
             // Защита от зацикливаний, если в будущем появятся ссылки
-            ReferenceHandler = ReferenceHandler.IgnoreCycles 
+            ReferenceHandler = ReferenceHandler.IgnoreCycles
         };
     }
 }

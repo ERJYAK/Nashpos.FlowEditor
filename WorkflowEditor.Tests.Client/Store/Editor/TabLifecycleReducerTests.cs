@@ -43,18 +43,6 @@ public class TabLifecycleReducerTests
     }
 
     [Fact]
-    public void CreateNewWorkflow_adds_a_document_and_makes_it_active()
-    {
-        var state = new EditorState();
-
-        var next = EditorReducers.ReduceCreateNewWorkflowAction(state, new CreateNewWorkflowAction());
-
-        next.OpenDocuments.Should().HaveCount(1);
-        next.ActiveDocumentId.Should().NotBeNull();
-        next.OpenDocuments.Should().ContainKey(next.ActiveDocumentId!);
-    }
-
-    [Fact]
     public void LoadWorkflow_sets_loading_flag()
     {
         var state = new EditorState();

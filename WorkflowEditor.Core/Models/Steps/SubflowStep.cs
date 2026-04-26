@@ -6,7 +6,7 @@ namespace WorkflowEditor.Core.Models.Steps;
 public record SubflowStep : WorkflowStep
 {
     [JsonPropertyName("subflowId")]
-    public string SubflowId { get; set; } = string.Empty; 
+    public string SubflowId { get; init; } = string.Empty;
     
     // В UI при двойном клике по этому узлу, мы будем брать SubflowId 
     // и открывать новую вкладку, запрашивая по gRPC нужный документ.

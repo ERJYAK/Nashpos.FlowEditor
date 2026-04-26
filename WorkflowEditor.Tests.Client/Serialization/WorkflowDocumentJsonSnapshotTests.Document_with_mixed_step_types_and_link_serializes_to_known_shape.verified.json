@@ -7,8 +7,8 @@
       "id": "step-base",
       "name": "Base",
       "position": {
-        "X": 10,
-        "Y": 20
+        "x": 10,
+        "y": 20
       }
     },
     {
@@ -17,8 +17,8 @@
       "id": "step-sub",
       "name": "Subflow",
       "position": {
-        "X": 100,
-        "Y": 200
+        "x": 100,
+        "y": 200
       }
     }
   ],
@@ -32,5 +32,5 @@
       "label": "next"
     }
   ],
-  "CreatedAt": "2024-01-02T03:04:05Z"
+  "createdAt": "2024-01-02T03:04:05Z"
 }

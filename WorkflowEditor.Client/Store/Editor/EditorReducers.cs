@@ -268,38 +268,6 @@ public static class EditorReducers
     }
     
     [ReducerMethod]
-    public static EditorState ReduceCreateNewWorkflowAction(EditorState state, CreateNewWorkflowAction action)
-    {
-        Console.WriteLine("[Слой Редуктора] Пойман экшен CreateNewWorkflowAction");
-        try
-        {
-            var newDoc = new WorkflowDocument
-            {
-                WorkflowId = Guid.NewGuid().ToString(),
-                Name = $"Процесс {state.OpenDocuments.Count + 1}",
-                Steps = new List<WorkflowStep>(),
-                Links = new List<WorkflowLink>()
-            };
-
-            // Используем SetItem вместо Add на случай, если документ с таким ID чудом уже есть
-            var newDocuments = state.OpenDocuments.SetItem(newDoc.WorkflowId, newDoc);
-            
-            Console.WriteLine($"[Слой Редуктора] Документ создан. Теперь в памяти документов: {newDocuments.Count}");
-
-            return state with
-            {
-                OpenDocuments = newDocuments,
-                ActiveDocumentId = newDoc.WorkflowId
-            };
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[Слой Редуктора ОШИБКА] {ex.Message}");
-            return state; // Возвращаем старый стейт при ошибке
-        }
-    }
-    
-    [ReducerMethod]
     public static EditorState ReduceAddLinkAction(EditorState state, AddLinkAction action)
     {
         if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document)) return state;

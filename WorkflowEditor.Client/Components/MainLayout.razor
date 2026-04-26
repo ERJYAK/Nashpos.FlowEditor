@@ -1,4 +1,7 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject IActionSubscriber Subscriber
+@inject ISnackbar Snackbar
 
 <style>
     /* Рантайм-инъекция стилей с правильным именем класса движка */
@@ -13,12 +16,12 @@
         display: block !important;
         cursor: crosshair !important;
     }
-    
+
     .diagram-port:hover {
         background-color: #ff4081 !important;
         transform: scale(1.3) !important;
     }
-    
+
     /* Позиционирование относительно MudPaper */
     .diagram-port.left { left: -8px !important; top: 50% !important; transform: translateY(-50%) !important; }
     .diagram-port.right { right: -8px !important; top: 50% !important; transform: translateY(-50%) !important; }
@@ -26,10 +29,10 @@
     .diagram-port.bottom { bottom: -8px !important; left: 50% !important; transform: translateX(-50%) !important; }
 </style>
 
-<MudThemeProvider/>
+<MudThemeProvider Theme="_theme" />
 <MudDialogProvider />
 <MudSnackbarProvider />
-<MudPopoverProvider /> 
+<MudPopoverProvider />
 <MudLayout>
     <MudMainContent>
         @Body
@@ -41,10 +44,22 @@
     {
         PaletteDark = new PaletteDark()
         {
-            Primary = "#3267ff", // Синий как на твоих примерах
+            Primary = "#3267ff",
             Surface = "#1e1e1e",
             Background = "#121212",
             AppbarBackground = "#1a1a1a"
         }
     };
+
+    protected override void OnInitialized()
+    {
+        Subscriber.SubscribeToAction<LoadWorkflowFailedAction>(this,
+            a => Snackbar.Add($"Не удалось загрузить процесс: {a.ErrorMessage}", Severity.Error));
+        Subscriber.SubscribeToAction<SaveWorkflowFailedAction>(this,
+            a => Snackbar.Add($"Не удалось сохранить процесс: {a.ErrorMessage}", Severity.Error));
+        Subscriber.SubscribeToAction<SaveWorkflowSuccessAction>(this,
+            _ => Snackbar.Add("Сохранено", Severity.Success));
+    }
+
+    public void Dispose() => Subscriber.UnsubscribeFromAllActions(this);
 }

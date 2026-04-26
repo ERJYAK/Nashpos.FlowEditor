@@ -149,7 +149,6 @@
     
     private void CreateNewWorkflow()
     {
-        Console.WriteLine("[Слой UI] Нажата кнопка 'Создать процесс'. Отправляем экшен...");
-        Dispatcher.Dispatch(new CreateNewWorkflowAction());
+        Dispatcher.Dispatch(new CreateWorkflowRequestedAction());
     }
 }
