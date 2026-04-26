@@ -8,6 +8,7 @@
 @using WorkflowEditor.Client.Store.Editor
 @using WorkflowEditor.Core.Models
 @using Blazor.Diagrams.Core.Models.Base
+@using Blazor.Diagrams.Options
 @using Microsoft.AspNetCore.Components
 @using WorkflowEditor.Client.Components.Nodes
 @using WorkflowEditor.Core.Models.Steps
@@ -67,10 +68,11 @@
     [Inject] private IDispatcher Dispatcher { get; set; } = null!;
     [Parameter] public string WorkflowId { get; set; } = string.Empty;
     [Parameter] public EventCallback<IReadOnlyList<SelectableModel>> OnSelectionChanged { get; set; }
-    [Parameter] public EventCallback<IReadOnlyList<SelectableModel>> OnContextMenuRequested { get; set; }
+    [Parameter] public EventCallback<(IReadOnlyList<SelectableModel> Selection, double CanvasX, double CanvasY)> OnContextMenuRequested { get; set; }
 
-    private BlazorDiagram Diagram { get; set; } = new BlazorDiagram();
-    
+    private BlazorDiagram Diagram { get; set; } = new BlazorDiagram(
+        new BlazorDiagramOptions { AllowPanning = false });
+
     // Флаг для защиты от рекурсивных вызовов
     private bool _isSyncing = false;
 
@@ -80,6 +82,10 @@
     private double _boxCurrentScreenX, _boxCurrentScreenY;
     private double _boxStartCanvasX, _boxStartCanvasY;
     private bool _boxAdditive;
+
+    // Состояние панорамирования средней кнопкой мыши
+    private bool _isMmbPanning;
+    private double _mmbPanLastX, _mmbPanLastY;
 
     protected override void OnInitialized()
     {
@@ -120,18 +126,20 @@
                 var existingNode = Diagram.Nodes.OfType<WorkflowNodeModel>().FirstOrDefault(n => n.StepId == step.Id);
                 if (existingNode == null)
                 {
-                    if (step is SubflowStep subflow) existingNode = new SubflowNodeModel(subflow);
-                    else if (step is BaseStep task) existingNode = new BaseNodeModel(task);
-                    
-                    if (existingNode != null) Diagram.Nodes.Add(existingNode);
+                    WorkflowNodeModel? newNode = step switch
+                    {
+                        SubflowStep subflow => new SubflowNodeModel(subflow),
+                        BaseStep task       => new BaseNodeModel(task),
+                        _                   => null
+                    };
+                    if (newNode != null) Diagram.Nodes.Add(newNode);
                 }
-
-                if (existingNode != null)
+                else if (existingNode.Title != step.Name)
                 {
-                    // ПРИНУДИТЕЛЬНАЯ СИНХРОНИЗАЦИЯ КООРДИНАТ
-                    existingNode.SetPosition(step.Position.X, step.Position.Y);
-                    
+                    existingNode.Title = step.Name;
+                    existingNode.Refresh();
                 }
+                // Существующие узлы: позиция управляется холстом, не перезаписывается из состояния
             }
 
             // 2. Синхронизация линков
@@ -191,6 +199,14 @@
 
     private void OnDiagramPointerDown(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
+        if (e.Button == 1) // СКМ — панорамирование
+        {
+            _isMmbPanning = true;
+            _mmbPanLastX = e.ClientX;
+            _mmbPanLastY = e.ClientY;
+            return;
+        }
+
         // Запускаем рамку выделения только при ЛКМ по пустому холсту
         if (e.Button != 0 || model != null) return;
 
@@ -208,6 +224,14 @@
 
     private void OnDiagramPointerMove(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
+        if (_isMmbPanning)
+        {
+            Diagram.UpdatePan(e.ClientX - _mmbPanLastX, e.ClientY - _mmbPanLastY);
+            _mmbPanLastX = e.ClientX;
+            _mmbPanLastY = e.ClientY;
+            return;
+        }
+
         if (!_isBoxSelecting) return;
 
         _boxCurrentScreenX = e.ClientX;
@@ -217,6 +241,12 @@
     
     private void OnDiagramPointerUp(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
+        if (e.Button is 1) // СКМ — завершение панорамирования
+        {
+            _isMmbPanning = false;
+            return;
+        }
+
         if (e.Button is 0) // Левая кнопка мыши
         {
             if (_isBoxSelecting)
@@ -224,12 +254,10 @@
                 FinishBoxSelection(e);
                 return;
             }
-            
-            if (_isSyncing) return;
-        
+
             if (!State.Value.OpenDocuments.TryGetValue(WorkflowId, out var document)) return;
 
-            // Собираем все сдвиги выделенных узлов и фиксируем их одним экшеном
+            // Собираем все сдвиги узлов и фиксируем одним экшеном
             var moves = new List<(string StepId, CanvasPosition NewPosition)>();
             foreach (var node in Diagram.Nodes.OfType<WorkflowNodeModel>())
             {
@@ -241,6 +269,9 @@
 
                 moves.Add((node.StepId, new CanvasPosition(node.Position.X, node.Position.Y)));
             }
+
+            if (moves.Count > 0)
+                Dispatcher.Dispatch(new MoveStepsAction(WorkflowId, moves));
         }
         else if (e.Button is 2) // Правая кнопка мыши
         {
@@ -249,7 +280,8 @@
             {
                 selection = new List<SelectableModel> { target };
             }
-            OnContextMenuRequested.InvokeAsync(selection);
+            var canvasPoint = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
+            OnContextMenuRequested.InvokeAsync((selection, canvasPoint.X, canvasPoint.Y));
         }
     }
     
@@ -355,6 +387,15 @@
         }
     }
     
+    public (double X, double Y)? GetViewportCenter()
+    {
+        if (Diagram.Container == null) return null;
+        var cx = Diagram.Container.Left + Diagram.Container.Width / 2;
+        var cy = Diagram.Container.Top + Diagram.Container.Height / 2;
+        var pt = Diagram.GetRelativeMousePoint(cx, cy);
+        return (pt.X, pt.Y);
+    }
+
     public void Dispose()
     {
         State.StateChanged -= OnStateChanged;

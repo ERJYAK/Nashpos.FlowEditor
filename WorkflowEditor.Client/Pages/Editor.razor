@@ -51,9 +51,10 @@
                     @if (State.Value.ActiveDocumentId == doc.WorkflowId)
                     {
                         <div style="height: calc(100vh - 120px);">
-                            <CanvasTab WorkflowId="@doc.WorkflowId"
+                            <CanvasTab @ref="_activeCanvas"
+                                       WorkflowId="@doc.WorkflowId"
                                        OnSelectionChanged="@(s => _selection = s)"
-                                       OnContextMenuRequested="@(s => _contextMenuTarget = s)"/>
+                                       OnContextMenuRequested="@(info => _contextMenuInfo = info)"/>
                         </div>
                     }
 
@@ -79,16 +80,17 @@
     [Inject] private IDispatcher Dispatcher { get; set; } = null!;
     
     private EditorContextMenu _contextMenu = null!;
+    private CanvasTab? _activeCanvas;
     private IReadOnlyList<SelectableModel> _selection = Array.Empty<SelectableModel>();
-    private IReadOnlyList<SelectableModel>? _contextMenuTarget;
-    
+    private (IReadOnlyList<SelectableModel> Selection, double CanvasX, double CanvasY)? _contextMenuInfo;
+
     private void ShowContextMenu(MouseEventArgs e)
     {
-        // CanvasTab сообщает о правом клике с учётом текущего множественного выделения,
-        // если такого сигнала не было — берём актуальный набор выделения.
-        var target = _contextMenuTarget ?? _selection;
-        _contextMenu.Open(e.ClientX, e.ClientY, target);
-        _contextMenuTarget = null;
+        var target = _contextMenuInfo?.Selection ?? _selection;
+        var canvasX = _contextMenuInfo?.CanvasX ?? 0;
+        var canvasY = _contextMenuInfo?.CanvasY ?? 0;
+        _contextMenu.Open(e.ClientX, e.ClientY, target, canvasX, canvasY);
+        _contextMenuInfo = null;
     }
     
     private int GetActiveIndex()
@@ -122,21 +124,21 @@
     
     private void AddStepToActive()
     {
-        Console.WriteLine("[Слой UI] Нажата кнопка 'Добавить шаг'");
         var activeId = State.Value.ActiveDocumentId;
         if (activeId == null) return;
 
-        // Небольшой рандом, чтобы карточки не появлялись строго одна поверх другой
         var offset = new Random().Next(0, 50);
+        var center = _activeCanvas?.GetViewportCenter();
+        var pos = center.HasValue
+            ? new CanvasPosition(center.Value.X + offset, center.Value.Y + offset)
+            : new CanvasPosition(100 + offset, 100 + offset);
 
-        var newStep = new BaseStep
+        Dispatcher.Dispatch(new AddStepAction(activeId, new BaseStep
         {
             Id = Guid.NewGuid().ToString(),
             Name = "Новая задача",
-            Position = new CanvasPosition(100 + offset, 100 + offset)
-        };
-
-        Dispatcher.Dispatch(new AddStepAction(activeId, newStep));
+            Position = pos
+        }));
     }
     
     private void CreateNewWorkflow()
