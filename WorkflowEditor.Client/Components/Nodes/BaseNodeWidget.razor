@@ -17,14 +17,21 @@
 
         @if (State.Value.EditingStepId == Node.StepId)
         {
-            <MudTextField @bind-Value="_editingName"
-                          Immediate="true"
-                          AutoFocus="true"
-                          Margin="Margin.Dense"
-                          OnKeyDown="HandleKeyDown"
-                          OnBlur="SaveAndStopEditing"
-                          @onclick:stopPropagation="true"
-                          @onmousedown:stopPropagation="true"/>
+            <div @onkeydown:stopPropagation="true"
+                 @onkeyup:stopPropagation="true"
+                 @onpointerdown:stopPropagation="true"
+                 @onpointermove:stopPropagation="true"
+                 @onpointerup:stopPropagation="true"
+                 @onmousedown:stopPropagation="true"
+                 @onmousemove:stopPropagation="true">
+
+                <MudTextField @bind-Value="_editingName"
+                              Immediate="true"
+                              AutoFocus="true"
+                              Margin="Margin.Dense"
+                              OnKeyDown="HandleKeyDown"
+                              OnBlur="SaveAndStopEditing" />
+            </div>
         }
         else
         {
@@ -58,6 +65,7 @@
                     return step.Name;
                 }
             }
+
             return Node.Title;
         }
     }
@@ -88,12 +96,13 @@
     private void SaveAndStopEditing()
     {
         var activeWorkflowId = State.Value.ActiveDocumentId;
-        
+
         if (!string.IsNullOrWhiteSpace(_editingName) && activeWorkflowId != null)
         {
             Dispatcher.Dispatch(new RenameStepAction(activeWorkflowId, Node.StepId, _editingName));
         }
-        
+
         Dispatcher.Dispatch(new StopEditingStepAction());
     }
+
 }
