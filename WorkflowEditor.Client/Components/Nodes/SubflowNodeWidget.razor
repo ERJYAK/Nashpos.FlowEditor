@@ -1,11 +1,4 @@
-@using Blazor.Diagrams.Components.Renderers
-@using Fluxor
-@using Microsoft.AspNetCore.Components.Web
-@using WorkflowEditor.Client.Diagram.Nodes
-@using MudBlazor
-@using WorkflowEditor.Client.Store.Editor
-
-<MudPaper Elevation="4" 
+<MudPaper Elevation="4"
           Class="@(Node.Selected ? "pa-4 selected-node" : "pa-4")"
           Style="min-width: 200px; cursor: pointer; position: relative; overflow: visible;"
           @ondblclick="StartEditing"

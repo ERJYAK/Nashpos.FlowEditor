@@ -16,10 +16,12 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 // Регистрируем стандартный HttpClient
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 
-// Регистрация клиента на жестко заданный порт API
+var grpcUrl = builder.Configuration["Api:GrpcUrl"]
+    ?? throw new InvalidOperationException("Api:GrpcUrl is not configured (wwwroot/appsettings.json)");
+
 builder.Services.AddGrpcClient<WorkflowStorage.WorkflowStorageClient>(o =>
     {
-        o.Address = new Uri("https://localhost:5001");
+        o.Address = new Uri(grpcUrl);
     })
     .ConfigurePrimaryHttpMessageHandler(() => new GrpcWebHandler(GrpcWebMode.GrpcWeb, new HttpClientHandler()));
 builder.Services.AddMudServices();

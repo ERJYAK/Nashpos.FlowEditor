@@ -1,15 +1,4 @@
-@using MudBlazor
-@using Microsoft.AspNetCore.Components.Web
-@using Blazor.Diagrams.Core.Models.Base
-@using WorkflowEditor.Client.Store.Editor
-@using Fluxor
-@using WorkflowEditor.Client.Diagram.Nodes
-@using Blazor.Diagrams.Core.Models
-@* Добавлены using для доступа к моделям шагов и позиции *@
-@using WorkflowEditor.Core.Models
-@using WorkflowEditor.Core.Models.Steps
-
-@inherits Fluxor.Blazor.Web.Components.FluxorComponent
+@inherits FluxorComponent
 
 @inject IState<EditorState> EditorState
 @inject IDispatcher Dispatcher
