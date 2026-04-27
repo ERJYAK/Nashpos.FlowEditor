@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using VerifyXunit;
 using WorkflowEditor.Core.Models;
@@ -16,7 +17,7 @@ public class WorkflowDocumentJsonSnapshotTests
             WorkflowId = "wf-snap",
             Name = "snapshot",
             CreatedAt = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Utc),
-            Steps =
+            Steps = new WorkflowStep[]
             {
                 new BaseStep
                 {
@@ -31,8 +32,8 @@ public class WorkflowDocumentJsonSnapshotTests
                     Position = new CanvasPosition(100, 200),
                     SubflowId = "sub-1"
                 }
-            },
-            Links =
+            }.ToImmutableDictionary(s => s.Id),
+            Links = new[]
             {
                 new WorkflowLink
                 {
@@ -43,7 +44,7 @@ public class WorkflowDocumentJsonSnapshotTests
                     TargetPortId = "Left",
                     Label = "next"
                 }
-            }
+            }.ToImmutableDictionary(l => l.Id)
         };
 
         var json = JsonSerializer.Serialize(document, JsonConfiguration.GetOptions());

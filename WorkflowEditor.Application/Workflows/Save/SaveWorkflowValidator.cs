@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using FluentValidation;
 using WorkflowEditor.Core.Models;
 
@@ -21,8 +22,8 @@ public sealed class SaveWorkflowValidator : AbstractValidator<SaveWorkflowComman
                 .MaximumLength(200);
 
             RuleFor(c => c.Document.Steps)
-                .Must(HaveUniqueIds)
-                .WithMessage("step ids must be unique");
+                .Must(StepKeysMatchIds)
+                .WithMessage("step dictionary key must equal step.Id");
 
             RuleFor(c => c.Document)
                 .Must(LinksReferenceExistingSteps)
@@ -30,23 +31,21 @@ public sealed class SaveWorkflowValidator : AbstractValidator<SaveWorkflowComman
         });
     }
 
-    private static bool HaveUniqueIds(IReadOnlyList<WorkflowStep> steps)
+    private static bool StepKeysMatchIds(ImmutableDictionary<string, WorkflowStep> steps)
     {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var step in steps)
+        foreach (var (key, step) in steps)
         {
-            if (!seen.Add(step.Id)) return false;
+            if (!string.Equals(key, step.Id, StringComparison.Ordinal)) return false;
         }
         return true;
     }
 
     private static bool LinksReferenceExistingSteps(WorkflowDocument doc)
     {
-        var stepIds = doc.Steps.Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
-        foreach (var link in doc.Links)
+        foreach (var link in doc.Links.Values)
         {
-            if (!stepIds.Contains(link.SourceNodeId)) return false;
-            if (!stepIds.Contains(link.TargetNodeId)) return false;
+            if (!doc.Steps.ContainsKey(link.SourceNodeId)) return false;
+            if (!doc.Steps.ContainsKey(link.TargetNodeId)) return false;
         }
         return true;
     }

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using NSubstitute;
 using WorkflowEditor.Application.Abstractions;
 using WorkflowEditor.Application.Common;
@@ -26,11 +27,17 @@ public class SaveWorkflowCommandHandlerTests
     }
 
     [Fact]
-    public async Task returns_Validation_when_step_ids_collide()
+    public async Task returns_Validation_when_step_dictionary_key_does_not_match_step_id()
     {
         var repo = Substitute.For<IWorkflowRepository>();
         var handler = new SaveWorkflowCommandHandler(repo, new SaveWorkflowValidator());
-        var doc = Document(ValidWorkflowId, BaseStep("dup"), BaseStep("dup"));
+        var step = BaseStep("real-id");
+        var doc = new WorkflowDocument
+        {
+            WorkflowId = ValidWorkflowId,
+            Name = "test",
+            Steps = ImmutableDictionary<string, WorkflowStep>.Empty.SetItem("wrong-key", step)
+        };
 
         var result = await handler.HandleAsync(new SaveWorkflowCommand(doc), CancellationToken.None);
 

@@ -31,6 +31,18 @@
         Закрыть вкладку
     </MudButton>
 
+    <MudIconButton Icon="@Icons.Material.Filled.Undo"
+                   Color="Color.Inherit"
+                   Class="ml-2"
+                   Disabled="@(!CanUndoActive())"
+                   OnClick="UndoActive"
+                   title="Отменить (Ctrl+Z)" />
+    <MudIconButton Icon="@Icons.Material.Filled.Redo"
+                   Color="Color.Inherit"
+                   Disabled="@(!CanRedoActive())"
+                   OnClick="RedoActive"
+                   title="Повторить (Ctrl+Y / Ctrl+Shift+Z)" />
+
     <MudSpacer />
 </MudAppBar>
 
@@ -180,5 +192,25 @@
     {
         var activeId = State.Value.ActiveDocumentId;
         return activeId == null ? Task.CompletedTask : CloseTab(activeId);
+    }
+
+    private bool CanUndoActive() =>
+        State.Value.ActiveDocumentId != null && State.Value.CanUndo(State.Value.ActiveDocumentId);
+
+    private bool CanRedoActive() =>
+        State.Value.ActiveDocumentId != null && State.Value.CanRedo(State.Value.ActiveDocumentId);
+
+    private void UndoActive()
+    {
+        var activeId = State.Value.ActiveDocumentId;
+        if (activeId == null) return;
+        Dispatcher.Dispatch(new UndoAction(activeId));
+    }
+
+    private void RedoActive()
+    {
+        var activeId = State.Value.ActiveDocumentId;
+        if (activeId == null) return;
+        Dispatcher.Dispatch(new RedoAction(activeId));
     }
 }

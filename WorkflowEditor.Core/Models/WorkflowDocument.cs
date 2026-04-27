@@ -1,6 +1,8 @@
-namespace WorkflowEditor.Core.Models;
-
+using System.Collections.Immutable;
 using System.Text.Json.Serialization;
+using WorkflowEditor.Core.Serialization;
+
+namespace WorkflowEditor.Core.Models;
 
 public record WorkflowDocument
 {
@@ -11,11 +13,15 @@ public record WorkflowDocument
     public string Name { get; init; } = string.Empty;
 
     [JsonPropertyName("steps")]
-    public List<WorkflowStep> Steps { get; init; } = new();
+    [JsonConverter(typeof(WorkflowStepDictionaryConverter))]
+    public ImmutableDictionary<string, WorkflowStep> Steps { get; init; } =
+        ImmutableDictionary<string, WorkflowStep>.Empty;
 
     [JsonPropertyName("links")]
-    public List<WorkflowLink> Links { get; init; } = new();
-    
+    [JsonConverter(typeof(WorkflowLinkDictionaryConverter))]
+    public ImmutableDictionary<string, WorkflowLink> Links { get; init; } =
+        ImmutableDictionary<string, WorkflowLink>.Empty;
+
     [JsonPropertyName("createdAt")]
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 }

@@ -16,8 +16,8 @@ public class StepReducerTests
 
         var next = EditorReducers.ReduceAddStepAction(state, new AddStepAction("wf-1", newStep));
 
-        next.OpenDocuments["wf-1"].Steps.Should().HaveCount(2)
-            .And.Contain(s => s.Id == "s-2");
+        next.OpenDocuments["wf-1"].Steps.Should().HaveCount(2);
+        next.OpenDocuments["wf-1"].Steps.Should().ContainKey("s-2");
     }
 
     [Fact]
@@ -40,7 +40,7 @@ public class StepReducerTests
 
         var next = EditorReducers.ReduceRemoveStepAction(state, new RemoveStepAction("wf-1", "s-1"));
 
-        next.OpenDocuments["wf-1"].Steps.Should().ContainSingle().Which.Id.Should().Be("s-2");
+        next.OpenDocuments["wf-1"].Steps.Should().ContainSingle().Which.Key.Should().Be("s-2");
         next.OpenDocuments["wf-1"].Links.Should().BeEmpty();
     }
 
@@ -72,9 +72,9 @@ public class StepReducerTests
                 ("s-2", new CanvasPosition(30, 40))
             }));
 
-        next.OpenDocuments["wf-1"].Steps.First(s => s.Id == "s-1").Position
+        next.OpenDocuments["wf-1"].Steps["s-1"].Position
             .Should().Be(new CanvasPosition(100, 200));
-        next.OpenDocuments["wf-1"].Steps.First(s => s.Id == "s-2").Position
+        next.OpenDocuments["wf-1"].Steps["s-2"].Position
             .Should().Be(new CanvasPosition(30, 40));
     }
 
@@ -102,7 +102,7 @@ public class StepReducerTests
         var next = EditorReducers.ReduceRenameStepAction(state,
             new RenameStepAction("wf-1", "s-1", "new"));
 
-        var step = next.OpenDocuments["wf-1"].Steps.Single();
+        var step = next.OpenDocuments["wf-1"].Steps.Values.Single();
         step.Should().BeOfType<BaseStep>();
         step.Name.Should().Be("new");
     }
@@ -116,7 +116,7 @@ public class StepReducerTests
         var next = EditorReducers.ReduceRenameStepAction(state,
             new RenameStepAction("wf-1", "s-1", "new"));
 
-        var step = next.OpenDocuments["wf-1"].Steps.Single().Should().BeOfType<SubflowStep>().Subject;
+        var step = next.OpenDocuments["wf-1"].Steps.Values.Single().Should().BeOfType<SubflowStep>().Subject;
         step.Name.Should().Be("new");
         step.SubflowId.Should().Be("sub-42");
     }
@@ -133,7 +133,7 @@ public class StepReducerTests
                 ("s-1", new CanvasPosition(50, 60))
             }));
 
-        var step = next.OpenDocuments["wf-1"].Steps.Single().Should().BeOfType<SubflowStep>().Subject;
+        var step = next.OpenDocuments["wf-1"].Steps.Values.Single().Should().BeOfType<SubflowStep>().Subject;
         step.Position.Should().Be(new CanvasPosition(50, 60));
         step.SubflowId.Should().Be("sub-9");
     }

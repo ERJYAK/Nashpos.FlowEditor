@@ -30,12 +30,12 @@ internal static class EditorTestData
         {
             WorkflowId = id,
             Name = "doc",
-            Steps = steps.ToList(),
-            Links = new List<WorkflowLink>()
+            Steps = steps.ToImmutableDictionary(s => s.Id),
+            Links = ImmutableDictionary<string, WorkflowLink>.Empty
         };
 
     public static WorkflowDocument WithLinks(this WorkflowDocument doc, params WorkflowLink[] links) =>
-        doc with { Links = links.ToList() };
+        doc with { Links = links.ToImmutableDictionary(l => l.Id) };
 
     public static EditorState StateWith(WorkflowDocument document, string? activeId = null) =>
         new EditorState() with

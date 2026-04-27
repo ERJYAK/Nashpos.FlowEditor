@@ -86,6 +86,14 @@
             Blazor.Diagrams.Core.Anchors.Anchor,
             Blazor.Diagrams.Core.Anchors.Anchor>> _linkTargetChangedHandlers = new();
 
+    // Throttling box-select StateHasChanged до 16ms (~60 fps)
+    private const int BoxSelectFrameThrottleMs = 16;
+    private long _boxSelectLastFrameTicks;
+
+    // Отложенное выделение: применяется в OnAfterRenderAsync после того, как Blazor
+    // физически отрендерит свежесозданные узлы (без хардкода Task.Delay(50))
+    private List<SelectableModel>? _pendingSelection;
+
     protected override void OnInitialized()
     {
         base.OnInitialized();
@@ -109,6 +117,21 @@
 
     private void OnStateChanged(object? sender, EventArgs args) => SyncStateToDiagram();
 
+    protected override Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_pendingSelection is { Count: > 0 } sel)
+        {
+            _pendingSelection = null;
+            Diagram.UnselectAll();
+            foreach (var model in sel)
+            {
+                Diagram.SelectModel(model, unselectOthers: false);
+            }
+            StateHasChanged();
+        }
+        return base.OnAfterRenderAsync(firstRender);
+    }
+
     private void SyncStateToDiagram()
     {
         if (!State.Value.OpenDocuments.TryGetValue(WorkflowId, out var document)) return;
@@ -119,16 +142,21 @@
         {
             // Список для сбора свежесозданных визуальных элементов (узлов и связей)
             var newlyAddedModels = new List<SelectableModel>();
-            
+
+            // Индекс существующих узлов по StepId — O(1) lookup на каждой итерации
+            var nodeById = Diagram.Nodes.OfType<WorkflowNodeModel>()
+                .ToDictionary(n => n.StepId);
+
             // 1. Синхронизация узлов
-            var nodesToRemove = Diagram.Nodes.OfType<WorkflowNodeModel>()
-                .Where(n => document.Steps.All(s => s.Id != n.StepId)).ToList();
+            var nodesToRemove = nodeById
+                .Where(kvp => !document.Steps.ContainsKey(kvp.Key))
+                .Select(kvp => (Blazor.Diagrams.Core.Models.NodeModel)kvp.Value)
+                .ToList();
             Diagram.Nodes.Remove(nodesToRemove);
 
-            foreach (var step in document.Steps)
+            foreach (var step in document.Steps.Values)
             {
-                var existingNode = Diagram.Nodes.OfType<WorkflowNodeModel>().FirstOrDefault(n => n.StepId == step.Id);
-                if (existingNode == null)
+                if (!nodeById.TryGetValue(step.Id, out var existingNode))
                 {
                     WorkflowNodeModel? newNode = step switch
                     {
@@ -139,6 +167,7 @@
                     if (newNode != null)
                     {
                         Diagram.Nodes.Add(newNode);
+                        nodeById[step.Id] = newNode;
                         newlyAddedModels.Add(newNode);
                     }
                 }
@@ -149,62 +178,52 @@
                         existingNode.Title = step.Name;
                         existingNode.Refresh();
                     }
-                    // Подтверждаем позицию из state как «последнюю синхронизированную»,
-                    // чтобы PointerUp не зафиксировал ложное перемещение
                     existingNode.MarkSynced(step.Position);
                 }
             }
 
             // 2. Синхронизация линков
-            var linksToRemove = Diagram.Links
-                .Where(l => l.Target is SinglePortAnchor && !document.Links.Any(dl => MatchLink(l, dl))).ToList();
+            var diagramLinksByMatch = Diagram.Links
+                .Where(l => l.Target is SinglePortAnchor)
+                .Select(l => (Diagram: l, State: TryMatchToState(l, document)))
+                .ToList();
+
+            var linksToRemove = diagramLinksByMatch
+                .Where(p => p.State == null)
+                .Select(p => p.Diagram)
+                .ToList();
             Diagram.Links.Remove(linksToRemove);
 
-            foreach (var link in document.Links)
+            var existingStateLinkIds = diagramLinksByMatch
+                .Where(p => p.State != null)
+                .Select(p => p.State!.Id)
+                .ToHashSet();
+
+            foreach (var link in document.Links.Values)
             {
-                if (Diagram.Links.Any(l => MatchLink(l, link))) continue;
+                if (existingStateLinkIds.Contains(link.Id)) continue;
 
-                var sourceNode = Diagram.Nodes.OfType<WorkflowNodeModel>().FirstOrDefault(n => n.StepId == link.SourceNodeId);
-                var targetNode = Diagram.Nodes.OfType<WorkflowNodeModel>().FirstOrDefault(n => n.StepId == link.TargetNodeId);
+                if (!nodeById.TryGetValue(link.SourceNodeId, out var sourceNode)) continue;
+                if (!nodeById.TryGetValue(link.TargetNodeId, out var targetNode)) continue;
 
-                if (sourceNode != null && targetNode != null)
+                var sourcePort = sourceNode.Ports.FirstOrDefault(p => p.Alignment.ToString() == link.SourcePortId);
+                var targetPort = targetNode.Ports.FirstOrDefault(p => p.Alignment.ToString() == link.TargetPortId);
+
+                if (sourcePort != null && targetPort != null)
                 {
-                    var sourcePort = sourceNode.Ports.FirstOrDefault(p => p.Alignment.ToString() == link.SourcePortId);
-                    var targetPort = targetNode.Ports.FirstOrDefault(p => p.Alignment.ToString() == link.TargetPortId);
-
-                    if (sourcePort != null && targetPort != null)
-                    {
-                        var diagramLink = new Blazor.Diagrams.Core.Models.LinkModel(sourcePort, targetPort);
-                        Diagram.Links.Add(diagramLink);
-                    }
+                    var diagramLink = new Blazor.Diagrams.Core.Models.LinkModel(sourcePort, targetPort);
+                    Diagram.Links.Add(diagramLink);
                 }
             }
 
-            // --- НОВАЯ ЛОГИКА ВЫДЕЛЕНИЯ ---
+            // Отложенное выделение свежесозданных моделей: применится в OnAfterRenderAsync,
+            // когда Blazor отрендерит DOM-узлы, без магической Task.Delay-задержки
             if (!_isInitialSync && newlyAddedModels.Count > 0)
             {
-                // Отвязываем логику выделения от текущего синхронного потока событий.
-                // Это решает 2 проблемы:
-                // 1. Дает Blazor время физически отрендерить компоненты узлов в DOM.
-                // 2. Ждет завершения всплытия событий браузера (например, MouseUp от контекстного меню), 
-                //    которое иначе заставит глобальный обработчик движка сбросить наше выделение.
-                _ = Task.Run(async () => 
-                {
-                    await Task.Delay(50); // 50мс достаточно для завершения цикла рендеринга и очистки Call Stack
-                
-                    await InvokeAsync(() => 
-                    {
-                        Diagram.UnselectAll(); // Снимаем выделение со старых объектов
-                        foreach (var model in newlyAddedModels)
-                        {
-                            Diagram.SelectModel(model, unselectOthers: false); // Выделяем только вставленные
-                        }
-                        StateHasChanged(); // Принудительно обновляем UI для отображения синих рамок
-                    });
-                });
+                _pendingSelection = newlyAddedModels;
             }
-            
-            _isInitialSync = false; // Первая синхронизация пройдена
+
+            _isInitialSync = false;
             
             StateHasChanged();
             _isSyncing = false;
@@ -216,15 +235,40 @@
     {
         var sourcePort = (diagramLink.Source as SinglePortAnchor)?.Port;
         var targetPort = (diagramLink.Target as SinglePortAnchor)?.Port;
-        
+
         if (sourcePort?.Parent is WorkflowNodeModel sNode && targetPort?.Parent is WorkflowNodeModel tNode)
         {
-            return sNode.StepId == stateLink.SourceNodeId && 
+            return sNode.StepId == stateLink.SourceNodeId &&
                    sourcePort.Alignment.ToString() == stateLink.SourcePortId &&
                    tNode.StepId == stateLink.TargetNodeId &&
                    targetPort.Alignment.ToString() == stateLink.TargetPortId;
         }
         return false;
+    }
+
+    private static WorkflowLink? TryMatchToState(
+        Blazor.Diagrams.Core.Models.Base.BaseLinkModel diagramLink,
+        WorkflowDocument document)
+    {
+        var sourcePort = (diagramLink.Source as SinglePortAnchor)?.Port;
+        var targetPort = (diagramLink.Target as SinglePortAnchor)?.Port;
+        if (sourcePort?.Parent is not WorkflowNodeModel sNode) return null;
+        if (targetPort?.Parent is not WorkflowNodeModel tNode) return null;
+
+        var sourcePortId = sourcePort.Alignment.ToString();
+        var targetPortId = targetPort.Alignment.ToString();
+
+        foreach (var link in document.Links.Values)
+        {
+            if (link.SourceNodeId == sNode.StepId &&
+                link.TargetNodeId == tNode.StepId &&
+                link.SourcePortId == sourcePortId &&
+                link.TargetPortId == targetPortId)
+            {
+                return link;
+            }
+        }
+        return null;
     }
 
     private IReadOnlyList<SelectableModel> CurrentSelection()
@@ -279,6 +323,12 @@
 
         _boxCurrentScreenX = e.ClientX;
         _boxCurrentScreenY = e.ClientY;
+
+        // Throttle box-select repaint до ~60fps; иначе StateHasChanged() дёргается на каждый pixel-move
+        var nowTicks = Environment.TickCount64;
+        if (nowTicks - _boxSelectLastFrameTicks < BoxSelectFrameThrottleMs) return;
+        _boxSelectLastFrameTicks = nowTicks;
+
         StateHasChanged();
     }
     
@@ -355,6 +405,19 @@
                     var canvasPoint = Diagram.GetRelativeMousePoint(_lastClientX, _lastClientY);
                     Dispatcher.Dispatch(new PasteClipboardAction(canvasPoint.X, canvasPoint.Y));
                 }
+            }
+            // Undo: Ctrl+Z (без Shift)
+            else if ((e.Key == "z" || e.Key == "Z" || e.Code == "KeyZ") && !e.ShiftKey)
+            {
+                if (State.Value.CanUndo(WorkflowId))
+                    Dispatcher.Dispatch(new UndoAction(WorkflowId));
+            }
+            // Redo: Ctrl+Y или Ctrl+Shift+Z
+            else if (e.Key == "y" || e.Key == "Y" || e.Code == "KeyY" ||
+                     ((e.Key == "z" || e.Key == "Z" || e.Code == "KeyZ") && e.ShiftKey))
+            {
+                if (State.Value.CanRedo(WorkflowId))
+                    Dispatcher.Dispatch(new RedoAction(WorkflowId));
             }
         }
     }
@@ -463,7 +526,7 @@
 
         if (State.Value.OpenDocuments.TryGetValue(WorkflowId, out var document))
         {
-            var stateLink = document.Links.FirstOrDefault(dl => MatchLink(link, dl));
+            var stateLink = TryMatchToState(link, document);
             if (stateLink != null)
             {
                 Dispatcher.Dispatch(new RemoveLinkAction(WorkflowId, stateLink.Id));

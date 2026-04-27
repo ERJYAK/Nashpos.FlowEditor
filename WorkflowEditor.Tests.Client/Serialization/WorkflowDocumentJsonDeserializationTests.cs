@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using WorkflowEditor.Core.Models;
 using WorkflowEditor.Core.Models.Steps;
@@ -16,30 +17,30 @@ public class WorkflowDocumentJsonDeserializationTests
         {
             WorkflowId = "wf-1",
             Name = "doc",
-            Steps =
+            Steps = new WorkflowStep[]
             {
                 new BaseStep { Id = "b", Name = "B", Position = new CanvasPosition(1, 2) },
                 new SubflowStep { Id = "s", Name = "S", SubflowId = "sub", Position = new CanvasPosition(3, 4) }
-            },
-            Links =
+            }.ToImmutableDictionary(s => s.Id),
+            Links = new[]
             {
                 new WorkflowLink
                 {
                     Id = "l", SourceNodeId = "b", SourcePortId = "Right",
                     TargetNodeId = "s", TargetPortId = "Left"
                 }
-            }
+            }.ToImmutableDictionary(l => l.Id)
         };
 
         var json = JsonSerializer.Serialize(original, Options);
         var restored = JsonSerializer.Deserialize<WorkflowDocument>(json, Options)!;
 
         restored.Steps.Should().HaveCount(2);
-        restored.Steps[0].Should().BeOfType<BaseStep>();
-        restored.Steps[1].Should().BeOfType<SubflowStep>()
+        restored.Steps["b"].Should().BeOfType<BaseStep>();
+        restored.Steps["s"].Should().BeOfType<SubflowStep>()
             .Which.SubflowId.Should().Be("sub");
         restored.Links.Should().ContainSingle()
-            .Which.SourceNodeId.Should().Be("b");
+            .Which.Value.SourceNodeId.Should().Be("b");
     }
 
     [Fact]

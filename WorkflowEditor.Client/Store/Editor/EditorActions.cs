@@ -50,3 +50,7 @@ public record StopEditingStepAction();
 public record CopySelectionAction(IReadOnlyList<SelectableModel> Selected);
 public record PasteClipboardAction(double X, double Y);
 public record DeleteSelectionAction(IReadOnlyList<SelectableModel> Selected);
+
+// Undo/Redo на уровне документа
+public record UndoAction(string WorkflowId);
+public record RedoAction(string WorkflowId);

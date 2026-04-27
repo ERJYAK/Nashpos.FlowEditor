@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Blazor.Diagrams.Core.Anchors;
 using Blazor.Diagrams.Core.Models;
 using Fluxor;
@@ -22,7 +23,7 @@ public static class EditorReducers
             .Select(n => n.StepId)
             .ToHashSet();
 
-        var copiedSteps = document.Steps
+        var copiedSteps = document.Steps.Values
             .Where(s => selectedStepIds.Contains(s.Id))
             .ToList();
 
@@ -34,7 +35,7 @@ public static class EditorReducers
         var copiedLinkIds = new HashSet<string>();
         var copiedLinks = new List<WorkflowLink>();
 
-        foreach (var link in document.Links)
+        foreach (var link in document.Links.Values)
         {
             if (selectedStepIds.Contains(link.SourceNodeId) &&
                 selectedStepIds.Contains(link.TargetNodeId))
@@ -79,7 +80,7 @@ public static class EditorReducers
         if (clipboard.Steps.Count == 0 && clipboard.Links.Count == 0) return state;
 
         var idMap = new Dictionary<string, string>();
-        var newSteps = document.Steps.ToList();
+        var newSteps = document.Steps.ToBuilder();
 
         foreach (var step in clipboard.Steps)
         {
@@ -95,10 +96,10 @@ public static class EditorReducers
                 .WithName(step.Name + " (Copy)")
                 .WithPosition(newPosition);
 
-            newSteps.Add(cloned);
+            newSteps[newId] = cloned;
         }
 
-        var newLinks = document.Links.ToList();
+        var newLinks = document.Links.ToBuilder();
         foreach (var link in clipboard.Links)
         {
             if (!idMap.TryGetValue(link.SourceNodeId, out var newSourceId) ||
@@ -107,18 +108,23 @@ public static class EditorReducers
                 continue;
             }
 
-            newLinks.Add(new WorkflowLink
+            var newLinkId = Guid.NewGuid().ToString();
+            newLinks[newLinkId] = new WorkflowLink
             {
-                Id = Guid.NewGuid().ToString(),
+                Id = newLinkId,
                 SourceNodeId = newSourceId,
                 SourcePortId = link.SourcePortId,
                 TargetNodeId = newTargetId,
                 TargetPortId = link.TargetPortId,
                 Label = link.Label
-            });
+            };
         }
 
-        var updatedDocument = document with { Steps = newSteps, Links = newLinks };
+        var updatedDocument = document with
+        {
+            Steps = newSteps.ToImmutable(),
+            Links = newLinks.ToImmutable()
+        };
         return state.WithMutation(state.ActiveDocumentId, updatedDocument);
     }
 
@@ -150,16 +156,14 @@ public static class EditorReducers
             return state;
         }
 
-        var newSteps = document.Steps
-            .Where(s => !nodeIds.Contains(s.Id))
-            .ToList();
+        var newSteps = document.Steps.RemoveRange(nodeIds);
 
-        var newLinks = document.Links
+        var newLinks = document.Links.Values
             .Where(l =>
                 !nodeIds.Contains(l.SourceNodeId) &&
                 !nodeIds.Contains(l.TargetNodeId) &&
                 !explicitLinkIds.Contains(l.Id))
-            .ToList();
+            .ToImmutableDictionary(l => l.Id);
 
         var updatedDocument = document with { Steps = newSteps, Links = newLinks };
         return state.WithMutation(state.ActiveDocumentId, updatedDocument);
@@ -173,7 +177,7 @@ public static class EditorReducers
         if (sourcePort?.Parent is WorkflowNodeModel sourceNode &&
             targetPort?.Parent is WorkflowNodeModel targetNode)
         {
-            return document.Links.FirstOrDefault(l =>
+            return document.Links.Values.FirstOrDefault(l =>
                 l.SourceNodeId == sourceNode.StepId &&
                 l.TargetNodeId == targetNode.StepId &&
                 l.SourcePortId == sourcePort.Alignment.ToString() &&
@@ -189,7 +193,9 @@ public static class EditorReducers
         {
             OpenDocuments = state.OpenDocuments.SetItem(action.Document.WorkflowId, action.Document),
             ActiveDocumentId = action.Document.WorkflowId,
-            DirtyDocuments = state.DirtyDocuments.Remove(action.Document.WorkflowId)
+            DirtyDocuments = state.DirtyDocuments.Remove(action.Document.WorkflowId),
+            UndoStacks = state.UndoStacks.Remove(action.Document.WorkflowId),
+            RedoStacks = state.RedoStacks.Remove(action.Document.WorkflowId)
         };
     }
 
@@ -207,7 +213,9 @@ public static class EditorReducers
         {
             OpenDocuments = remaining,
             ActiveDocumentId = nextActive,
-            DirtyDocuments = state.DirtyDocuments.Remove(action.WorkflowId)
+            DirtyDocuments = state.DirtyDocuments.Remove(action.WorkflowId),
+            UndoStacks = state.UndoStacks.Remove(action.WorkflowId),
+            RedoStacks = state.RedoStacks.Remove(action.WorkflowId)
         };
     }
 
@@ -216,11 +224,9 @@ public static class EditorReducers
     {
         if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document))
             return state;
+        if (document.Steps.ContainsKey(action.Step.Id)) return state;
 
-        var newSteps = document.Steps.ToList();
-        newSteps.Add(action.Step);
-
-        var updatedDocument = document with { Steps = newSteps };
+        var updatedDocument = document with { Steps = document.Steps.SetItem(action.Step.Id, action.Step) };
         return state.WithMutation(action.WorkflowId, updatedDocument);
     }
 
@@ -238,7 +244,9 @@ public static class EditorReducers
             IsLoading = false,
             OpenDocuments = state.OpenDocuments.SetItem(action.Document.WorkflowId, action.Document),
             ActiveDocumentId = action.Document.WorkflowId,
-            DirtyDocuments = state.DirtyDocuments.Remove(action.Document.WorkflowId)
+            DirtyDocuments = state.DirtyDocuments.Remove(action.Document.WorkflowId),
+            UndoStacks = state.UndoStacks.Remove(action.Document.WorkflowId),
+            RedoStacks = state.RedoStacks.Remove(action.Document.WorkflowId)
         };
     }
 
@@ -258,12 +266,9 @@ public static class EditorReducers
     public static EditorState ReduceAddLinkAction(EditorState state, AddLinkAction action)
     {
         if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document)) return state;
-        if (document.Links.Any(l => l.Id == action.Link.Id)) return state;
+        if (document.Links.ContainsKey(action.Link.Id)) return state;
 
-        var newLinks = document.Links.ToList();
-        newLinks.Add(action.Link);
-
-        var updatedDocument = document with { Links = newLinks };
+        var updatedDocument = document with { Links = document.Links.SetItem(action.Link.Id, action.Link) };
         return state.WithMutation(action.WorkflowId, updatedDocument);
     }
 
@@ -271,10 +276,9 @@ public static class EditorReducers
     public static EditorState ReduceRemoveLinkAction(EditorState state, RemoveLinkAction action)
     {
         if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document)) return state;
-        if (document.Links.All(l => l.Id != action.LinkId)) return state;
+        if (!document.Links.ContainsKey(action.LinkId)) return state;
 
-        var newLinks = document.Links.Where(l => l.Id != action.LinkId).ToList();
-        var updatedDocument = document with { Links = newLinks };
+        var updatedDocument = document with { Links = document.Links.Remove(action.LinkId) };
         return state.WithMutation(action.WorkflowId, updatedDocument);
     }
 
@@ -289,21 +293,22 @@ public static class EditorReducers
     {
         if (action.Moves.Count == 0) return state;
         if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document)) return state;
-        var moves = action.Moves.ToDictionary(m => m.StepId, m => m.NewPosition);
 
+        var stepsBuilder = document.Steps.ToBuilder();
         var changed = false;
-        var newSteps = document.Steps.Select(s =>
-        {
-            if (!moves.TryGetValue(s.Id, out var newPosition)) return s;
-            if (s.Position == newPosition) return s;
 
+        foreach (var (stepId, newPosition) in action.Moves)
+        {
+            if (!stepsBuilder.TryGetValue(stepId, out var step)) continue;
+            if (step.Position == newPosition) continue;
+
+            stepsBuilder[stepId] = step.WithPosition(newPosition);
             changed = true;
-            return s.WithPosition(newPosition);
-        }).ToList();
+        }
 
         if (!changed) return state;
 
-        var updatedDocument = document with { Steps = newSteps };
+        var updatedDocument = document with { Steps = stepsBuilder.ToImmutable() };
         return state.WithMutation(action.WorkflowId, updatedDocument);
     }
 
@@ -312,12 +317,12 @@ public static class EditorReducers
     {
         if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document))
             return state;
-        if (document.Steps.All(s => s.Id != action.StepId)) return state;
+        if (!document.Steps.ContainsKey(action.StepId)) return state;
 
-        var newSteps = document.Steps.Where(s => s.Id != action.StepId).ToList();
-
-        var newLinks = document.Links.Where(l =>
-            l.SourceNodeId != action.StepId && l.TargetNodeId != action.StepId).ToList();
+        var newSteps = document.Steps.Remove(action.StepId);
+        var newLinks = document.Links.Values
+            .Where(l => l.SourceNodeId != action.StepId && l.TargetNodeId != action.StepId)
+            .ToImmutableDictionary(l => l.Id);
 
         var updatedDocument = document with { Steps = newSteps, Links = newLinks };
         return state.WithMutation(action.WorkflowId, updatedDocument);
@@ -327,20 +332,13 @@ public static class EditorReducers
     public static EditorState ReduceRenameStepAction(EditorState state, RenameStepAction action)
     {
         if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document)) return state;
+        if (!document.Steps.TryGetValue(action.StepId, out var step)) return state;
+        if (step.Name == action.NewName) return state;
 
-        var changed = false;
-        var newSteps = document.Steps
-            .Select(s =>
-            {
-                if (s.Id != action.StepId || s.Name == action.NewName) return s;
-                changed = true;
-                return s.WithName(action.NewName);
-            })
-            .ToList();
-
-        if (!changed) return state;
-
-        var updatedDocument = document with { Steps = newSteps };
+        var updatedDocument = document with
+        {
+            Steps = document.Steps.SetItem(action.StepId, step.WithName(action.NewName))
+        };
         return state.WithMutation(action.WorkflowId, updatedDocument);
     }
 
@@ -356,10 +354,76 @@ public static class EditorReducers
         return state with { EditingStepId = null };
     }
 
-    private static EditorState WithMutation(this EditorState state, string workflowId, WorkflowDocument updated) =>
-        state with
+    [ReducerMethod]
+    public static EditorState ReduceUndoAction(EditorState state, UndoAction action)
+    {
+        if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var current)) return state;
+        if (!state.UndoStacks.TryGetValue(action.WorkflowId, out var undoStack) || undoStack.IsEmpty) return state;
+
+        var previous = undoStack.Peek();
+        var newUndo = undoStack.Pop();
+        var redoStack = state.RedoStacks.GetValueOrDefault(action.WorkflowId, ImmutableStack<WorkflowDocument>.Empty);
+
+        return state with
+        {
+            OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, previous),
+            UndoStacks = newUndo.IsEmpty
+                ? state.UndoStacks.Remove(action.WorkflowId)
+                : state.UndoStacks.SetItem(action.WorkflowId, newUndo),
+            RedoStacks = state.RedoStacks.SetItem(action.WorkflowId, redoStack.Push(current)),
+            DirtyDocuments = state.DirtyDocuments.Add(action.WorkflowId)
+        };
+    }
+
+    [ReducerMethod]
+    public static EditorState ReduceRedoAction(EditorState state, RedoAction action)
+    {
+        if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var current)) return state;
+        if (!state.RedoStacks.TryGetValue(action.WorkflowId, out var redoStack) || redoStack.IsEmpty) return state;
+
+        var next = redoStack.Peek();
+        var newRedo = redoStack.Pop();
+        var undoStack = state.UndoStacks.GetValueOrDefault(action.WorkflowId, ImmutableStack<WorkflowDocument>.Empty);
+
+        return state with
+        {
+            OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, next),
+            RedoStacks = newRedo.IsEmpty
+                ? state.RedoStacks.Remove(action.WorkflowId)
+                : state.RedoStacks.SetItem(action.WorkflowId, newRedo),
+            UndoStacks = state.UndoStacks.SetItem(action.WorkflowId, undoStack.Push(current)),
+            DirtyDocuments = state.DirtyDocuments.Add(action.WorkflowId)
+        };
+    }
+
+    private const int UndoLimit = 50;
+
+    private static EditorState WithMutation(this EditorState state, string workflowId, WorkflowDocument updated)
+    {
+        var previousUndo = state.UndoStacks.GetValueOrDefault(workflowId, ImmutableStack<WorkflowDocument>.Empty);
+        var snapshot = state.OpenDocuments.GetValueOrDefault(workflowId);
+        var newUndo = snapshot is null
+            ? previousUndo
+            : Bound(previousUndo.Push(snapshot), UndoLimit);
+
+        return state with
         {
             OpenDocuments = state.OpenDocuments.SetItem(workflowId, updated),
-            DirtyDocuments = state.DirtyDocuments.Add(workflowId)
+            DirtyDocuments = state.DirtyDocuments.Add(workflowId),
+            UndoStacks = state.UndoStacks.SetItem(workflowId, newUndo),
+            RedoStacks = state.RedoStacks.Remove(workflowId)
         };
+    }
+
+    private static ImmutableStack<T> Bound<T>(ImmutableStack<T> stack, int limit)
+    {
+        var count = 0;
+        foreach (var _ in stack) count++;
+        if (count <= limit) return stack;
+
+        var keep = stack.Take(limit).Reverse().ToList();
+        var bounded = ImmutableStack<T>.Empty;
+        foreach (var item in keep) bounded = bounded.Push(item);
+        return bounded;
+    }
 }

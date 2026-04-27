@@ -14,7 +14,7 @@ public class LinkReducerTests
 
         var next = EditorReducers.ReduceAddLinkAction(state, new AddLinkAction("wf-1", link));
 
-        next.OpenDocuments["wf-1"].Links.Should().ContainSingle().Which.Id.Should().Be("l-1");
+        next.OpenDocuments["wf-1"].Links.Should().ContainSingle().Which.Key.Should().Be("l-1");
     }
 
     [Fact]
@@ -39,6 +39,6 @@ public class LinkReducerTests
 
         var next = EditorReducers.ReduceRemoveLinkAction(state, new RemoveLinkAction("wf-1", "l-1"));
 
-        next.OpenDocuments["wf-1"].Links.Should().ContainSingle().Which.Id.Should().Be("l-2");
+        next.OpenDocuments["wf-1"].Links.Should().ContainSingle().Which.Key.Should().Be("l-2");
     }
 }

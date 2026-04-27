@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using WorkflowEditor.Core.Models;
 using WorkflowEditor.Core.Models.Steps;
 
@@ -9,14 +10,14 @@ internal static class WorkflowFactory
     {
         WorkflowId = id,
         Name = "test workflow",
-        Steps = steps.ToList(),
-        Links = new List<WorkflowLink>()
+        Steps = steps.ToImmutableDictionary(s => s.Id),
+        Links = ImmutableDictionary<string, WorkflowLink>.Empty
     };
 
     public static BaseStep BaseStep(string id) => new() { Id = id, Name = "task" };
 
     public static WorkflowDocument WithLinks(this WorkflowDocument doc, params WorkflowLink[] links) =>
-        doc with { Links = links.ToList() };
+        doc with { Links = links.ToImmutableDictionary(l => l.Id) };
 
     public static WorkflowLink Link(string id, string source, string target) => new()
     {

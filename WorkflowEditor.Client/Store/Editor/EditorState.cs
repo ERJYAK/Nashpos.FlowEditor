@@ -9,7 +9,6 @@ public record EditorState
 {
     public bool IsLoading { get; init; }
 
-    // Словарь открытых вкладок: WorkflowId -> Document
     public ImmutableDictionary<string, WorkflowDocument> OpenDocuments { get; init; }
 
     public string? ActiveDocumentId { get; init; }
@@ -21,7 +20,11 @@ public record EditorState
     // Документы с несохранёнными правками
     public ImmutableHashSet<string> DirtyDocuments { get; init; }
 
-    // Требование Fluxor: конструктор без параметров для начального состояния
+    // Undo/Redo: для каждой вкладки храним стек предыдущих/последующих версий документа
+    public ImmutableDictionary<string, ImmutableStack<WorkflowDocument>> UndoStacks { get; init; }
+
+    public ImmutableDictionary<string, ImmutableStack<WorkflowDocument>> RedoStacks { get; init; }
+
     public EditorState()
     {
         IsLoading = false;
@@ -30,9 +33,17 @@ public record EditorState
         EditingStepId = null;
         Clipboard = null;
         DirtyDocuments = ImmutableHashSet<string>.Empty;
+        UndoStacks = ImmutableDictionary<string, ImmutableStack<WorkflowDocument>>.Empty;
+        RedoStacks = ImmutableDictionary<string, ImmutableStack<WorkflowDocument>>.Empty;
     }
 
     public bool IsDirty(string workflowId) => DirtyDocuments.Contains(workflowId);
+
+    public bool CanUndo(string workflowId) =>
+        UndoStacks.TryGetValue(workflowId, out var stack) && !stack.IsEmpty;
+
+    public bool CanRedo(string workflowId) =>
+        RedoStacks.TryGetValue(workflowId, out var stack) && !stack.IsEmpty;
 }
 
 public record ClipboardPayload(

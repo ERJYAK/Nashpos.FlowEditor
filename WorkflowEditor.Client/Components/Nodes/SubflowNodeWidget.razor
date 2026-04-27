@@ -61,10 +61,10 @@
         get
         {
             if (State.Value.ActiveDocumentId != null &&
-                State.Value.OpenDocuments.TryGetValue(State.Value.ActiveDocumentId, out var doc))
+                State.Value.OpenDocuments.TryGetValue(State.Value.ActiveDocumentId, out var doc) &&
+                doc.Steps.TryGetValue(Node.StepId, out var step))
             {
-                var step = doc.Steps.FirstOrDefault(s => s.Id == Node.StepId);
-                if (step != null) return step.Name;
+                return step.Name;
             }
             return Node.Title;
         }

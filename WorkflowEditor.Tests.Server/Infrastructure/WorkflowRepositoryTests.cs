@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.EntityFrameworkCore;
 using WorkflowEditor.Core.Models;
 using WorkflowEditor.Core.Models.Steps;
@@ -20,10 +21,10 @@ public class WorkflowRepositoryTests
     {
         WorkflowId = id,
         Name = name,
-        Steps = new List<WorkflowStep>
+        Steps = new WorkflowStep[]
         {
             new BaseStep { Id = "s-1", Name = "task" }
-        }
+        }.ToImmutableDictionary(s => s.Id)
     };
 
     [Fact]
@@ -50,7 +51,7 @@ public class WorkflowRepositoryTests
         loaded.Should().NotBeNull();
         loaded!.WorkflowId.Should().Be("wf-1");
         loaded.Name.Should().Be("first");
-        loaded.Steps.Should().ContainSingle().Which.Should().BeOfType<BaseStep>();
+        loaded.Steps.Values.Should().ContainSingle().Which.Should().BeOfType<BaseStep>();
     }
 
     [Fact]

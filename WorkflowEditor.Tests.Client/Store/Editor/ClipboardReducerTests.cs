@@ -78,7 +78,7 @@ public class ClipboardReducerTests
 
         var next = EditorReducers.ReducePasteClipboardAction(state, new PasteClipboardAction(100, 200));
 
-        var pasted = next.OpenDocuments["wf-1"].Steps.Should().ContainSingle().Subject;
+        var pasted = next.OpenDocuments["wf-1"].Steps.Values.Should().ContainSingle().Subject;
         pasted.Id.Should().NotBe("orig");
         pasted.Position.Should().Be(new CanvasPosition(100, 200));
         pasted.Name.Should().Be("Task (Copy)");
@@ -99,7 +99,7 @@ public class ClipboardReducerTests
 
         var next = EditorReducers.ReducePasteClipboardAction(state, new PasteClipboardAction(0, 0));
 
-        var pasted = next.OpenDocuments["wf-1"].Steps.Should().ContainSingle().Subject;
+        var pasted = next.OpenDocuments["wf-1"].Steps.Values.Should().ContainSingle().Subject;
         var sub = pasted.Should().BeOfType<SubflowStep>().Subject;
         sub.Id.Should().NotBe("orig");
         sub.Name.Should().Be("Sub (Copy)");
@@ -125,11 +125,11 @@ public class ClipboardReducerTests
 
         var pastedDoc = next.OpenDocuments["wf-1"];
         pastedDoc.Steps.Should().HaveCount(2);
-        var link = pastedDoc.Links.Should().ContainSingle().Subject;
+        var link = pastedDoc.Links.Values.Should().ContainSingle().Subject;
         link.SourceNodeId.Should().NotBe("s-1");
         link.TargetNodeId.Should().NotBe("s-2");
-        pastedDoc.Steps.Should().Contain(s => s.Id == link.SourceNodeId);
-        pastedDoc.Steps.Should().Contain(s => s.Id == link.TargetNodeId);
+        pastedDoc.Steps.Should().ContainKey(link.SourceNodeId);
+        pastedDoc.Steps.Should().ContainKey(link.TargetNodeId);
     }
 
     [Fact]
@@ -154,7 +154,7 @@ public class ClipboardReducerTests
         var next = EditorReducers.ReduceDeleteSelectionAction(state,
             new DeleteSelectionAction(Selection(s1)));
 
-        next.OpenDocuments["wf-1"].Steps.Should().ContainSingle().Which.Id.Should().Be("s-2");
+        next.OpenDocuments["wf-1"].Steps.Should().ContainSingle().Which.Key.Should().Be("s-2");
         next.OpenDocuments["wf-1"].Links.Should().BeEmpty();
     }
 
