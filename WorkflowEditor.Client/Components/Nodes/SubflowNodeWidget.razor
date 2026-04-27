@@ -1,48 +1,72 @@
-<MudPaper Elevation="4"
-          Class="@(Node.Selected ? "pa-4 selected-node" : "pa-4")"
-          Style="min-width: 200px; cursor: pointer; position: relative; overflow: visible;"
-          @ondblclick="StartEditing"
-          @onclick:stopPropagation="true">
-    <MudStack Spacing="1">
-        <MudStack Row="true" AlignItems="AlignItems.Center">
-            <MudIcon Icon="@Icons.Material.Filled.Lan" Color="Color.Primary" />
-            @if (State.Value.EditingStepId == Node.StepId)
-            {
-                <div @onkeydown:stopPropagation="true"
-                     @onkeyup:stopPropagation="true"
-                     @onpointerdown:stopPropagation="true"
-                     @onpointermove:stopPropagation="true"
-                     @onpointerup:stopPropagation="true"
-                     @onmousedown:stopPropagation="true"
-                     @onmousemove:stopPropagation="true">
+@inherits FluxorComponent
 
-                    <MudTextField @bind-Value="_editingName"
-                                  Immediate="true"
-                                  AutoFocus="true"
-                                  Margin="Margin.Dense"
-                                  OnKeyDown="HandleKeyDown"
-                                  OnBlur="SaveAndStopEditing" />
-                </div>
+<MudPaper Elevation="4"
+          Class="@(Node.Selected ? "pa-3 selected-node" : "pa-3")"
+          Style="min-width: 260px; max-width: 360px; cursor: pointer; position: relative; overflow: visible;"
+          @ondblclick="OpenSubflow">
+    <MudStack Spacing="1">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.Lan" Color="Color.Primary" Size="Size.Small" />
+            <MudText Typo="Typo.subtitle2">@(string.IsNullOrEmpty(Node.SubflowName) ? "—" : Node.SubflowName)</MudText>
+            @if (IsRecursive)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Icon="@Icons.Material.Filled.SyncProblem">recursive</MudChip>
+            }
+        </MudStack>
+
+        @if (!string.IsNullOrEmpty(Description))
+        {
+            <MudText Typo="Typo.caption">@Description</MudText>
+        }
+
+        <MudDivider Class="my-1" />
+
+        @if (IsRecursive)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Warning">
+                Этот шаг ссылается на уже открытый процесс — раскрытие не показано.
+            </MudText>
+        }
+        else if (string.IsNullOrEmpty(Node.SubflowName))
+        {
+            <MudText Typo="Typo.caption" Color="Color.Default">Имя подпроцесса не задано</MudText>
+        }
+        else if (State.Value.LoadingSubflows.Contains(Node.SubflowName))
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                <MudText Typo="Typo.caption">Загрузка…</MudText>
+            </MudStack>
+        }
+        else if (CachedSubflow is { } cached)
+        {
+            @if (cached.Steps.Count == 0)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Default">Подпроцесс пуст</MudText>
             }
             else
             {
-                <MudText Typo="Typo.subtitle2">@CurrentName</MudText>
+                <MudList T="object" Dense="true" Gutters="false">
+                    @{ var i = 1; }
+                    @foreach (var s in cached.Steps)
+                    {
+                        var label = StepLabel(s);
+                        <MudListItem T="object" Class="py-0">
+                            <MudText Typo="Typo.caption">@i. @label</MudText>
+                        </MudListItem>
+                        i++;
+                    }
+                </MudList>
             }
-        </MudStack>
-        
-        <MudDivider />
-        <MudText Typo="Typo.caption" Color="Color.Secondary">
-            ID: @Node.SubflowId
-        </MudText>
-        <MudButton Variant="Variant.Outlined" 
-                   Size="Size.Small" 
-                   FullWidth="true"
-                   Color="Color.Info"
-                   OnClick="OnOpenSubflow">
-            Открыть подпроцесс
-        </MudButton>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Color="Color.Default">
+                Двойной клик — открыть подпроцесс
+            </MudText>
+        }
     </MudStack>
-    
+
     @foreach (var port in Node.Ports)
     {
         <PortRenderer Port="port" />
@@ -54,49 +78,66 @@
     [Inject] private IState<EditorState> State { get; set; } = null!;
     [Inject] private IDispatcher Dispatcher { get; set; } = null!;
 
-    private string _editingName = string.Empty;
+    private bool _hasRequestedFetch;
 
-    private string CurrentName
+    private string Description
     {
         get
         {
-            if (State.Value.ActiveDocumentId != null &&
-                State.Value.OpenDocuments.TryGetValue(State.Value.ActiveDocumentId, out var doc) &&
-                doc.Steps.TryGetValue(Node.StepId, out var step))
-            {
-                return step.Name;
-            }
-            return Node.Title;
+            var name = State.Value.ActiveDocumentName;
+            if (name is null || !State.Value.OpenDocuments.TryGetValue(name, out var editor))
+                return Node.Title ?? string.Empty;
+
+            var step = editor.Document.Steps.FirstOrDefault(s => s.Id == Node.StepId);
+            return step?.Description ?? Node.Title ?? string.Empty;
         }
     }
 
-    private void StartEditing()
+    private bool IsRecursive => !string.IsNullOrEmpty(Node.SubflowName)
+        && State.Value.OpenDocuments.ContainsKey(Node.SubflowName);
+
+    private WorkflowDocument? CachedSubflow =>
+        State.Value.SubflowCache.TryGetValue(Node.SubflowName, out var d) ? d : null;
+
+    protected override void OnParametersSet()
     {
-        _editingName = CurrentName;
-        Dispatcher.Dispatch(new StartEditingStepAction(Node.StepId));
+        base.OnParametersSet();
+        TryFetchOnce();
     }
 
-    private void HandleKeyDown(KeyboardEventArgs e)
+    private void TryFetchOnce()
     {
-        if (e.Key == "Enter") SaveAndStopEditing();
-        else if (e.Key == "Escape") CancelEditing();
+        if (_hasRequestedFetch) return;
+        if (string.IsNullOrEmpty(Node.SubflowName)) return;
+        if (IsRecursive) return;
+        if (State.Value.SubflowCache.ContainsKey(Node.SubflowName)) return;
+        if (State.Value.LoadingSubflows.Contains(Node.SubflowName)) return;
+
+        _hasRequestedFetch = true;
+        Dispatcher.Dispatch(new LoadSubflowAction(Node.SubflowName));
     }
 
-    private void CancelEditing() => Dispatcher.Dispatch(new StopEditingStepAction());
-
-    private void SaveAndStopEditing()
+    private void OpenSubflow()
     {
-        var activeWorkflowId = State.Value.ActiveDocumentId;
-        if (!string.IsNullOrWhiteSpace(_editingName) && activeWorkflowId != null)
+        if (string.IsNullOrEmpty(Node.SubflowName)) return;
+        Dispatcher.Dispatch(new OpenSubflowAction(Node.SubflowName));
+    }
+
+    private static string StepLabel(WorkflowStep step)
+    {
+        var description = string.IsNullOrEmpty(step.Description) ? null : step.Description;
+        var name = step switch
         {
-            Dispatcher.Dispatch(new RenameStepAction(activeWorkflowId, Node.StepId, _editingName));
-        }
-        Dispatcher.Dispatch(new StopEditingStepAction());
+            BaseStep b => b.StepKind,
+            SubflowStep s => s.SubflowName,
+            _ => string.Empty
+        };
+        return (description, name) switch
+        {
+            (null, "")  => "—",
+            (null, _)   => name,
+            (_, "")     => description!,
+            _           => $"{name} — {description}"
+        };
     }
-
-    private void OnOpenSubflow()
-    {
-        Dispatcher.Dispatch(new LoadWorkflowAction(Node.SubflowId));
-    }
-   
 }

@@ -59,6 +59,10 @@
             a => Snackbar.Add($"Не удалось сохранить процесс: {a.ErrorMessage}", Severity.Error));
         Subscriber.SubscribeToAction<SaveWorkflowSuccessAction>(this,
             _ => Snackbar.Add("Сохранено", Severity.Success));
+        Subscriber.SubscribeToAction<ImportFileFailedAction>(this,
+            a => Snackbar.Add($"Не удалось загрузить файл «{a.FileName}»: {a.ErrorMessage}", Severity.Error));
+        Subscriber.SubscribeToAction<LoadSubflowFailedAction>(this,
+            a => Snackbar.Add($"Подпроцесс «{a.Name}» не загружен: {a.ErrorMessage}", Severity.Warning));
     }
 
     public void Dispose() => Subscriber.UnsubscribeFromAllActions(this);

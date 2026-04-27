@@ -3,7 +3,7 @@ using WorkflowEditor.Application.Common;
 
 namespace WorkflowEditor.Application.Workflows.Delete;
 
-public sealed record DeleteWorkflowCommand(string WorkflowId);
+public sealed record DeleteWorkflowCommand(string Name);
 
 public interface IDeleteWorkflowCommandHandler
 {
@@ -14,13 +14,13 @@ public sealed class DeleteWorkflowCommandHandler(IWorkflowRepository repository)
 {
     public async Task<Result<bool>> HandleAsync(DeleteWorkflowCommand command, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(command.WorkflowId))
-            return Error.Validation("workflowId is required",
-                new Dictionary<string, string[]> { ["workflowId"] = ["required"] });
+        if (string.IsNullOrWhiteSpace(command.Name))
+            return Error.Validation("name is required",
+                new Dictionary<string, string[]> { ["name"] = ["required"] });
 
-        var deleted = await repository.DeleteAsync(command.WorkflowId, ct);
+        var deleted = await repository.DeleteAsync(command.Name, ct);
         return deleted
             ? Result<bool>.Success(true)
-            : Error.NotFound($"workflow '{command.WorkflowId}' not found");
+            : Error.NotFound($"workflow '{command.Name}' not found");
     }
 }

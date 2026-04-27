@@ -1,28 +1,28 @@
+using System.Text.Json.Serialization;
+
 namespace WorkflowEditor.Core.Models;
 
-using System.Text.Json.Serialization;
-using WorkflowEditor.Core.Models.Steps;
-
-[JsonPolymorphic(
-    TypeDiscriminatorPropertyName = "type",
-    UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FailSerialization)]
-[JsonDerivedType(typeof(SubflowStep), typeDiscriminator: "subflow")]
-[JsonDerivedType(typeof(BaseStep), typeDiscriminator: "base")]
-// Сюда будем добавлять новые типы узлов
+// Шаг процесса. Полиморфизм — `BaseStep` (дискриминатор `step`) и `SubflowStep` (дискриминатор `subflow`).
+// Сериализуется кастомным `WorkflowStepJsonConverter`: единый ключ-дискриминатор (`step` / `subflow`)
+// определяет тип, остальные поля — общие.
+//
+// `Id` — синтетический клиентский идентификатор (нужен только для адресации DOM/связей в редакторе);
+// в файле его нет, при импорте — пере-генерируется.
 public abstract record WorkflowStep
 {
-    [JsonPropertyName("id")]
+    [JsonIgnore]
     public string Id { get; init; } = Guid.NewGuid().ToString();
 
-    [JsonPropertyName("name")]
-    public string Name { get; init; } = string.Empty;
+    [JsonPropertyName("description")]
+    public string Description { get; init; } = string.Empty;
 
-    [JsonPropertyName("position")]
-    public CanvasPosition Position { get; init; } = new(0, 0);
+    [JsonPropertyName("iterate")]
+    public bool? Iterate { get; init; }
 
-    public abstract WorkflowStep WithName(string name);
+    [JsonPropertyName("context")]
+    public StepContext? Context { get; init; }
 
-    public abstract WorkflowStep WithPosition(CanvasPosition position);
+    public abstract WorkflowStep WithDescription(string description);
 
-    public abstract WorkflowStep CloneWithId(string newId);
+    public abstract WorkflowStep CloneAsNew();
 }

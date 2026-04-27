@@ -1,0 +1,18 @@
+﻿{
+  "description": "Import flow",
+  "steps": [
+    {
+      "subflow": "prepare-import",
+      "description": "Prepare import subflow"
+    },
+    {
+      "subflow": "iterate-tenants",
+      "description": "Iterate through the tenant list",
+      "iterate": true
+    },
+    {
+      "step": "apply-import",
+      "description": "Transfer imported data"
+    }
+  ]
+}

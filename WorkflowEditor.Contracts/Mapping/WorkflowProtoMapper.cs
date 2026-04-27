@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Text.Json;
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using WorkflowEditor.Contracts.Grpc;
 using DomainModels = WorkflowEditor.Core.Models;
@@ -12,46 +14,30 @@ public static class WorkflowProtoMapper
     {
         var dto = new WorkflowDocument
         {
-            WorkflowId = document.WorkflowId,
             Name = document.Name,
-            CreatedAt = Timestamp.FromDateTime(EnsureUtc(document.CreatedAt))
+            Description = document.Description
         };
 
-        foreach (var step in document.Steps.Values)
+        foreach (var step in document.Steps)
         {
             dto.Steps.Add(ToProto(step));
         }
-        foreach (var link in document.Links.Values)
-        {
-            dto.Links.Add(ToProto(link));
-        }
-
         return dto;
     }
 
     public static DomainModels.WorkflowDocument FromProto(WorkflowDocument dto)
     {
-        var stepsBuilder = ImmutableDictionary.CreateBuilder<string, DomainModels.WorkflowStep>();
+        var stepsBuilder = ImmutableList.CreateBuilder<DomainModels.WorkflowStep>();
         foreach (var protoStep in dto.Steps)
         {
-            var step = FromProto(protoStep);
-            stepsBuilder[step.Id] = step;
-        }
-
-        var linksBuilder = ImmutableDictionary.CreateBuilder<string, DomainModels.WorkflowLink>();
-        foreach (var protoLink in dto.Links)
-        {
-            var link = FromProto(protoLink);
-            linksBuilder[link.Id] = link;
+            stepsBuilder.Add(FromProto(protoStep));
         }
 
         return new DomainModels.WorkflowDocument
         {
-            WorkflowId = dto.WorkflowId,
             Name = dto.Name,
-            CreatedAt = dto.CreatedAt?.ToDateTime() ?? default,
-            Steps = stepsBuilder.ToImmutable(),
-            Links = linksBuilder.ToImmutable()
+            Description = dto.Description,
+            Steps = stepsBuilder.ToImmutable()
         };
     }
 
@@ -59,18 +45,22 @@ public static class WorkflowProtoMapper
     {
         var dto = new Step
         {
-            Id = step.Id,
-            Name = step.Name,
-            Position = new Position { X = step.Position.X, Y = step.Position.Y }
+            Description = step.Description,
+            Iterate = step.Iterate ?? false
         };
+
+        if (step.Context is not null && !step.Context.IsEmpty)
+        {
+            dto.Context = ToProto(step.Context);
+        }
 
         switch (step)
         {
             case DomainSteps.SubflowStep subflow:
-                dto.Subflow = new SubflowStepData { SubflowId = subflow.SubflowId };
+                dto.Subflow = new SubflowStepData { SubflowName = subflow.SubflowName };
                 break;
-            case DomainSteps.BaseStep:
-                dto.Base = new BaseStepData();
+            case DomainSteps.BaseStep baseStep:
+                dto.Base = new BaseStepData { StepKind = baseStep.StepKind };
                 break;
             default:
                 throw new InvalidOperationException($"unknown step type {step.GetType().Name}");
@@ -81,54 +71,80 @@ public static class WorkflowProtoMapper
 
     public static DomainModels.WorkflowStep FromProto(Step dto)
     {
-        var position = dto.Position is null
-            ? new DomainModels.CanvasPosition(0, 0)
-            : new DomainModels.CanvasPosition(dto.Position.X, dto.Position.Y);
+        var description = dto.Description;
+        bool? iterate = dto.Iterate ? true : null;
+        var context = dto.Context is null ? null : FromProto(dto.Context);
 
         return dto.KindCase switch
         {
             Step.KindOneofCase.Subflow => new DomainSteps.SubflowStep
             {
-                Id = dto.Id,
-                Name = dto.Name,
-                Position = position,
-                SubflowId = dto.Subflow.SubflowId
+                SubflowName = dto.Subflow.SubflowName,
+                Description = description,
+                Iterate = iterate,
+                Context = context
             },
             Step.KindOneofCase.Base => new DomainSteps.BaseStep
             {
-                Id = dto.Id,
-                Name = dto.Name,
-                Position = position
+                StepKind = dto.Base.StepKind,
+                Description = description,
+                Iterate = iterate,
+                Context = context
             },
             _ => throw new InvalidOperationException(
-                $"step '{dto.Id}' has no kind set (forward-incompatible payload)")
+                "step has no kind set (forward-incompatible payload)")
         };
     }
 
-    public static Link ToProto(DomainModels.WorkflowLink link) => new()
+    public static StepContext ToProto(DomainModels.StepContext src)
     {
-        Id = link.Id,
-        SourceNodeId = link.SourceNodeId,
-        SourcePortId = link.SourcePortId,
-        TargetNodeId = link.TargetNodeId,
-        TargetPortId = link.TargetPortId,
-        Label = link.Label ?? string.Empty
+        var dto = new StepContext();
+        if (src.Strings is not null)
+        {
+            foreach (var kv in src.Strings) dto.Strings.Add(kv.Key, kv.Value);
+        }
+        if (src.Integers is not null)
+        {
+            foreach (var kv in src.Integers) dto.Integers.Add(kv.Key, kv.Value);
+        }
+        if (src.Objects is not null)
+        {
+            foreach (var kv in src.Objects) dto.Objects.Add(kv.Key, JsonElementToValue(kv.Value));
+        }
+        return dto;
+    }
+
+    public static DomainModels.StepContext FromProto(StepContext dto)
+    {
+        var ctx = new DomainModels.StepContext
+        {
+            Strings = dto.Strings.Count == 0 ? null : dto.Strings.ToImmutableDictionary(),
+            Integers = dto.Integers.Count == 0 ? null : dto.Integers.ToImmutableDictionary(),
+            Objects = dto.Objects.Count == 0
+                ? null
+                : dto.Objects.ToImmutableDictionary(kv => kv.Key, kv => ValueToJsonElement(kv.Value))
+        };
+        return ctx;
+    }
+
+    private static Value JsonElementToValue(JsonElement el) => el.ValueKind switch
+    {
+        JsonValueKind.Null => Value.ForNull(),
+        JsonValueKind.True => Value.ForBool(true),
+        JsonValueKind.False => Value.ForBool(false),
+        JsonValueKind.String => Value.ForString(el.GetString() ?? string.Empty),
+        JsonValueKind.Number => Value.ForNumber(el.GetDouble()),
+        JsonValueKind.Array => Value.ForList(el.EnumerateArray().Select(JsonElementToValue).ToArray()),
+        JsonValueKind.Object => Value.ForStruct(new Struct
+        {
+            Fields = { el.EnumerateObject().ToDictionary(p => p.Name, p => JsonElementToValue(p.Value)) }
+        }),
+        _ => throw new InvalidOperationException($"unsupported JSON kind {el.ValueKind}")
     };
 
-    public static DomainModels.WorkflowLink FromProto(Link dto) => new()
+    private static JsonElement ValueToJsonElement(Value v)
     {
-        Id = dto.Id,
-        SourceNodeId = dto.SourceNodeId,
-        SourcePortId = dto.SourcePortId,
-        TargetNodeId = dto.TargetNodeId,
-        TargetPortId = dto.TargetPortId,
-        Label = string.IsNullOrEmpty(dto.Label) ? null : dto.Label
-    };
-
-    private static DateTime EnsureUtc(DateTime value) => value.Kind switch
-    {
-        DateTimeKind.Utc => value,
-        DateTimeKind.Local => value.ToUniversalTime(),
-        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
-    };
+        var json = JsonFormatter.Default.Format(v);
+        return JsonDocument.Parse(json).RootElement.Clone();
+    }
 }

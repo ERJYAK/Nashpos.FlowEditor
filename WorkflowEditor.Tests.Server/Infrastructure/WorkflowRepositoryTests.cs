@@ -1,98 +1,78 @@
-using System.Collections.Immutable;
-using Microsoft.EntityFrameworkCore;
-using WorkflowEditor.Core.Models;
 using WorkflowEditor.Core.Models.Steps;
 using WorkflowEditor.Infrastructure.Persistence;
+using WorkflowEditor.Tests.Server.TestKit;
 
 namespace WorkflowEditor.Tests.Server.Infrastructure;
 
 public class WorkflowRepositoryTests
 {
-    private static (AppDbContext, WorkflowRepository) NewRepository(TimeProvider? clock = null)
+    private static WorkflowRepository NewRepo(out AppDbContext db)
     {
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        var db = new AppDbContext(options);
-        return (db, new WorkflowRepository(db, clock ?? TimeProvider.System));
-    }
-
-    private static WorkflowDocument Document(string id, string name = "test") => new()
-    {
-        WorkflowId = id,
-        Name = name,
-        Steps = new WorkflowStep[]
-        {
-            new BaseStep { Id = "s-1", Name = "task" }
-        }.ToImmutableDictionary(s => s.Id)
-    };
-
-    [Fact]
-    public async Task GetAsync_returns_null_when_workflow_is_missing()
-    {
-        var (db, repo) = NewRepository();
-        await using var _ = db;
-
-        var result = await repo.GetAsync("missing", CancellationToken.None);
-
-        result.Should().BeNull();
+        db = WorkflowFactory.NewInMemoryContext();
+        return new WorkflowRepository(db, TimeProvider.System);
     }
 
     [Fact]
-    public async Task UpsertAsync_persists_document_then_GetAsync_returns_it()
+    public async Task Upsert_then_Get_roundtrips_the_document()
     {
-        var (db, repo) = NewRepository();
-        await using var _ = db;
-        var doc = Document("wf-1", "first");
+        var repo = NewRepo(out var db);
+        var doc = WorkflowFactory.Document("import", "Import flow",
+            WorkflowFactory.Sub("prepare-import", "Prepare", iterate: true),
+            WorkflowFactory.Base("apply-import", "Apply"));
 
         await repo.UpsertAsync(doc, CancellationToken.None);
-        var loaded = await repo.GetAsync("wf-1", CancellationToken.None);
+        var loaded = await repo.GetAsync("import", CancellationToken.None);
 
         loaded.Should().NotBeNull();
-        loaded!.WorkflowId.Should().Be("wf-1");
-        loaded.Name.Should().Be("first");
-        loaded.Steps.Values.Should().ContainSingle().Which.Should().BeOfType<BaseStep>();
+        loaded!.Name.Should().Be("import");
+        loaded.Description.Should().Be("Import flow");
+        loaded.Steps.Should().HaveCount(2);
+        loaded.Steps[0].Should().BeOfType<SubflowStep>().Which.Iterate.Should().BeTrue();
+        loaded.Steps[1].Should().BeOfType<BaseStep>().Which.StepKind.Should().Be("apply-import");
+
+        await db.DisposeAsync();
     }
 
     [Fact]
-    public async Task UpsertAsync_updates_existing_document_and_bumps_version()
+    public async Task Upsert_increments_Version_for_existing_workflow()
     {
-        var (db, repo) = NewRepository();
-        await using var _ = db;
+        var repo = NewRepo(out var db);
+        var doc = WorkflowFactory.Document("import", steps: WorkflowFactory.Base("apply-import"));
+        await repo.UpsertAsync(doc, CancellationToken.None);
+        await repo.UpsertAsync(doc with { Description = "updated" }, CancellationToken.None);
 
-        await repo.UpsertAsync(Document("wf-1", "first"), CancellationToken.None);
-        await repo.UpsertAsync(Document("wf-1", "second"), CancellationToken.None);
-
-        var entity = await db.Workflows.AsNoTracking().SingleAsync();
-        entity.Name.Should().Be("second");
+        var entity = db.ChangeTracker.Entries<WorkflowEntity>().Single().Entity;
         entity.Version.Should().Be(2);
+        entity.Description.Should().Be("updated");
+
+        await db.DisposeAsync();
     }
 
     [Fact]
-    public async Task DeleteAsync_returns_false_for_missing_workflow_and_true_when_removed()
+    public async Task Delete_returns_true_for_existing_and_false_for_missing()
     {
-        var (db, repo) = NewRepository();
-        await using var _ = db;
-        await repo.UpsertAsync(Document("wf-1"), CancellationToken.None);
+        var repo = NewRepo(out var db);
+        await repo.UpsertAsync(WorkflowFactory.Document("import", steps: WorkflowFactory.Base("k")),
+            CancellationToken.None);
 
-        var deletedMissing = await repo.DeleteAsync("ghost", CancellationToken.None);
-        var deletedExisting = await repo.DeleteAsync("wf-1", CancellationToken.None);
+        (await repo.DeleteAsync("import", CancellationToken.None)).Should().BeTrue();
+        (await repo.DeleteAsync("import", CancellationToken.None)).Should().BeFalse();
 
-        deletedMissing.Should().BeFalse();
-        deletedExisting.Should().BeTrue();
-        (await repo.GetAsync("wf-1", CancellationToken.None)).Should().BeNull();
+        await db.DisposeAsync();
     }
 
     [Fact]
-    public async Task ListAsync_returns_summaries_ordered_by_name()
+    public async Task List_returns_summaries_ordered_by_name()
     {
-        var (db, repo) = NewRepository();
-        await using var _ = db;
-        await repo.UpsertAsync(Document("wf-b", "Beta"), CancellationToken.None);
-        await repo.UpsertAsync(Document("wf-a", "Alpha"), CancellationToken.None);
+        var repo = NewRepo(out var db);
+        await repo.UpsertAsync(WorkflowFactory.Document("zeta", "z", WorkflowFactory.Base("k")), CancellationToken.None);
+        await repo.UpsertAsync(WorkflowFactory.Document("alpha", "a", WorkflowFactory.Base("k")), CancellationToken.None);
 
-        var summaries = await repo.ListAsync(CancellationToken.None);
+        var items = await repo.ListAsync(CancellationToken.None);
 
-        summaries.Select(s => s.Name).Should().ContainInOrder("Alpha", "Beta");
+        items.Select(i => i.Name).Should().ContainInOrder("alpha", "zeta");
+        items[0].Description.Should().Be("a");
+
+        await db.DisposeAsync();
     }
 }

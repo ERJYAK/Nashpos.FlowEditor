@@ -2,22 +2,21 @@ syntax = "proto3";
 
 package workfloweditor;
 
+import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
-// C#-namespace для генерируемого кода
 option csharp_namespace = "WorkflowEditor.Contracts.Grpc";
 
 service WorkflowStorage {
-  rpc GetWorkflow (GetWorkflowRequest) returns (GetWorkflowResponse);
-  rpc SaveWorkflow (SaveWorkflowRequest) returns (SaveWorkflowResponse);
-  rpc ListWorkflows (ListWorkflowsRequest) returns (ListWorkflowsResponse);
+  rpc GetWorkflow    (GetWorkflowRequest)    returns (GetWorkflowResponse);
+  rpc SaveWorkflow   (SaveWorkflowRequest)   returns (SaveWorkflowResponse);
+  rpc ListWorkflows  (ListWorkflowsRequest)  returns (ListWorkflowsResponse);
   rpc DeleteWorkflow (DeleteWorkflowRequest) returns (DeleteWorkflowResponse);
 }
 
 message GetWorkflowRequest {
-  string workflow_id = 1;
+  string name = 1;
 }
-
 message GetWorkflowResponse {
   WorkflowDocument document = 1;
 }
@@ -25,66 +24,54 @@ message GetWorkflowResponse {
 message SaveWorkflowRequest {
   WorkflowDocument document = 1;
 }
-
 message SaveWorkflowResponse {
   WorkflowDocument document = 1;
 }
 
 message ListWorkflowsRequest {}
-
 message ListWorkflowsResponse {
   repeated WorkflowSummary items = 1;
 }
 
 message WorkflowSummary {
-  string workflow_id = 1;
-  string name = 2;
-  google.protobuf.Timestamp created_at = 3;
-  google.protobuf.Timestamp updated_at = 4;
+  string name = 1;
+  string description = 2;
+  google.protobuf.Timestamp updated_at = 3;
 }
 
 message DeleteWorkflowRequest {
-  string workflow_id = 1;
+  string name = 1;
 }
-
 message DeleteWorkflowResponse {
   bool deleted = 1;
 }
 
 message WorkflowDocument {
-  string workflow_id = 1;
-  string name = 2;
-  google.protobuf.Timestamp created_at = 3;
-  repeated Step steps = 4;
-  repeated Link links = 5;
-}
-
-message Position {
-  double x = 1;
-  double y = 2;
+  string name = 1;
+  string description = 2;
+  repeated Step steps = 3;
 }
 
 message Step {
-  string id = 1;
-  string name = 2;
-  Position position = 3;
+  string description = 1;
+  bool iterate = 2;
+  StepContext context = 3;
   oneof kind {
     BaseStepData base = 10;
     SubflowStepData subflow = 11;
   }
 }
 
-message BaseStepData {}
-
-message SubflowStepData {
-  string subflow_id = 1;
+message BaseStepData {
+  string step_kind = 1;
 }
 
-message Link {
-  string id = 1;
-  string source_node_id = 2;
-  string source_port_id = 3;
-  string target_node_id = 4;
-  string target_port_id = 5;
-  string label = 6;
+message SubflowStepData {
+  string subflow_name = 1;
+}
+
+message StepContext {
+  map<string, string> strings = 1;
+  map<string, int64> integers = 2;
+  map<string, google.protobuf.Value> objects = 3;
 }

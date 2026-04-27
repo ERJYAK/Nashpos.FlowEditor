@@ -2,10 +2,8 @@
 @implements IDisposable
 
 <style>
-    /* Глобальные стили для портов, обходящие CSS-изоляцию */
     .port {
-        width: 16px;
-        height: 16px;
+        width: 16px; height: 16px;
         background-color: #3267ff;
         border: 2px solid #1e1e1e;
         border-radius: 50%;
@@ -14,18 +12,12 @@
         z-index: 10;
         transition: transform 0.1s ease-in-out;
     }
-    .port:hover {
-        background-color: #ff4081;
-        transform: scale(1.3);
-    }
-    .port.left { top: 50%; left: -8px; transform: translateY(-50%); }
-    .port.right { top: 50%; right: -8px; transform: translateY(-50%); }
-    .port.top { left: 50%; top: -8px; transform: translateX(-50%); }
+    .port:hover { background-color: #ff4081; transform: scale(1.3); }
+    .port.left   { top: 50%; left:  -8px; transform: translateY(-50%); }
+    .port.right  { top: 50%; right: -8px; transform: translateY(-50%); }
+    .port.top    { left: 50%; top:    -8px; transform: translateX(-50%); }
     .port.bottom { left: 50%; bottom: -8px; transform: translateX(-50%); }
-    
-    .selected-node {
-        border: 3px solid #3267ff !important;
-    }
+    .selected-node { border: 3px solid #3267ff !important; }
 </style>
 
 <div class="canvas-wrapper default-theme" style="width: 100%; height: 100%;">
@@ -54,55 +46,48 @@
 @code {
     [Inject] private IState<EditorState> State { get; set; } = null!;
     [Inject] private IDispatcher Dispatcher { get; set; } = null!;
-    [Parameter] public string WorkflowId { get; set; } = string.Empty;
+    [Inject] private MudBlazor.ISnackbar Snackbar { get; set; } = null!;
+    [Parameter] public string Name { get; set; } = string.Empty;
     [Parameter] public EventCallback<IReadOnlyList<SelectableModel>> OnSelectionChanged { get; set; }
     [Parameter] public EventCallback<(IReadOnlyList<SelectableModel> Selection, double CanvasX, double CanvasY)> OnContextMenuRequested { get; set; }
 
     private BlazorDiagram Diagram { get; set; } = new BlazorDiagram(
         new BlazorDiagramOptions { AllowPanning = false });
 
-    // Флаг для защиты от рекурсивных вызовов
-    private bool _isSyncing = false;
+    private bool _isSyncing;
     private bool _isInitialSync = true;
 
-    // Состояние рамки выделения (rubber-band)
     private bool _isBoxSelecting;
     private double _boxStartScreenX, _boxStartScreenY;
     private double _boxCurrentScreenX, _boxCurrentScreenY;
     private double _boxStartCanvasX, _boxStartCanvasY;
     private bool _boxAdditive;
-    
-    // Последние координаты пользовательского курсора
+
     private double _lastClientX;
     private double _lastClientY;
 
-    // Состояние панорамирования средней кнопкой мыши
     private bool _isMmbPanning;
     private double _mmbPanLastX, _mmbPanLastY;
 
-    // Подписки на TargetChanged каждого линка — чтобы корректно отписываться при удалении
+    // Подписки на TargetChanged каждого линка — снимать при удалении.
     private readonly Dictionary<Blazor.Diagrams.Core.Models.Base.BaseLinkModel,
         Action<Blazor.Diagrams.Core.Models.Base.BaseLinkModel,
-            Blazor.Diagrams.Core.Anchors.Anchor,
-            Blazor.Diagrams.Core.Anchors.Anchor>> _linkTargetChangedHandlers = new();
+               Blazor.Diagrams.Core.Anchors.Anchor,
+               Blazor.Diagrams.Core.Anchors.Anchor>> _linkTargetChangedHandlers = new();
 
-    // Throttling box-select StateHasChanged до 16ms (~60 fps)
     private const int BoxSelectFrameThrottleMs = 16;
     private long _boxSelectLastFrameTicks;
 
-    // Отложенное выделение: применяется в OnAfterRenderAsync после того, как Blazor
-    // физически отрендерит свежесозданные узлы (без хардкода Task.Delay(50))
     private List<SelectableModel>? _pendingSelection;
 
     protected override void OnInitialized()
     {
         base.OnInitialized();
-        // Используем именованный делегат, чтобы отписка сработала корректно
         State.StateChanged += OnStateChanged;
-        
+
         Diagram.RegisterComponent<SubflowNodeModel, SubflowNodeWidget>();
         Diagram.RegisterComponent<BaseNodeModel, BaseNodeWidget>();
-        
+
         Diagram.PointerDown += OnDiagramPointerDown;
         Diagram.PointerMove += OnDiagramPointerMove;
         Diagram.PointerUp += OnDiagramPointerUp;
@@ -111,7 +96,7 @@
         Diagram.Links.Added += OnLinkAdded;
         Diagram.Links.Removed += OnLinkRemoved;
         Diagram.Nodes.Removed += OnNodeRemoved;
-        
+
         SyncStateToDiagram();
     }
 
@@ -123,10 +108,7 @@
         {
             _pendingSelection = null;
             Diagram.UnselectAll();
-            foreach (var model in sel)
-            {
-                Diagram.SelectModel(model, unselectOthers: false);
-            }
+            foreach (var m in sel) Diagram.SelectModel(m, unselectOthers: false);
             StateHasChanged();
         }
         return base.OnAfterRenderAsync(firstRender);
@@ -134,155 +116,127 @@
 
     private void SyncStateToDiagram()
     {
-        if (!State.Value.OpenDocuments.TryGetValue(WorkflowId, out var document)) return;
+        if (!State.Value.OpenDocuments.TryGetValue(Name, out var editor)) return;
         if (_isSyncing) return;
 
         _isSyncing = true;
-        InvokeAsync(() => 
+        InvokeAsync(() =>
         {
-            // Список для сбора свежесозданных визуальных элементов (узлов и связей)
-            var newlyAddedModels = new List<SelectableModel>();
-
-            // Индекс существующих узлов по StepId — O(1) lookup на каждой итерации
-            var nodeById = Diagram.Nodes.OfType<WorkflowNodeModel>()
-                .ToDictionary(n => n.StepId);
-
-            // 1. Синхронизация узлов
-            var nodesToRemove = nodeById
-                .Where(kvp => !document.Steps.ContainsKey(kvp.Key))
-                .Select(kvp => (Blazor.Diagrams.Core.Models.NodeModel)kvp.Value)
-                .ToList();
-            Diagram.Nodes.Remove(nodesToRemove);
-
-            foreach (var step in document.Steps.Values)
+            try
             {
-                if (!nodeById.TryGetValue(step.Id, out var existingNode))
+                var newlyAdded = new List<SelectableModel>();
+
+                // --- Узлы ---
+                var stepIds = editor.Document.Steps.Select(s => s.Id).ToHashSet();
+                var nodeById = Diagram.Nodes.OfType<WorkflowNodeModel>().ToDictionary(n => n.StepId);
+
+                var nodesToRemove = nodeById
+                    .Where(kv => !stepIds.Contains(kv.Key))
+                    .Select(kv => (NodeModel)kv.Value)
+                    .ToList();
+                Diagram.Nodes.Remove(nodesToRemove);
+
+                foreach (var step in editor.Document.Steps)
                 {
-                    WorkflowNodeModel? newNode = step switch
+                    var position = editor.NodePositions.GetValueOrDefault(step.Id, new CanvasPosition(0, 0));
+
+                    if (!nodeById.TryGetValue(step.Id, out var existing))
                     {
-                        SubflowStep subflow => new SubflowNodeModel(subflow),
-                        BaseStep task       => new BaseNodeModel(task),
-                        _                   => null
+                        WorkflowNodeModel? node = step switch
+                        {
+                            SubflowStep s => new SubflowNodeModel(s, position),
+                            BaseStep b    => new BaseNodeModel(b, position),
+                            _ => null
+                        };
+                        if (node is not null)
+                        {
+                            Diagram.Nodes.Add(node);
+                            nodeById[step.Id] = node;
+                            newlyAdded.Add(node);
+                        }
+                    }
+                    else
+                    {
+                        if (existing.Title != step.Description)
+                        {
+                            existing.Title = step.Description;
+                            existing.Refresh();
+                        }
+                        existing.MarkSynced(position);
+                    }
+                }
+
+                // --- Связи ---
+                var stateLinkIds = editor.Links.Keys.ToHashSet();
+                var diagramLinkPairs = Diagram.Links
+                    .Select(l => (Diagram: l, State: TryMatchToState(l, editor)))
+                    .ToList();
+
+                var linksToRemove = diagramLinkPairs
+                    .Where(p => p.State is null)
+                    .Select(p => p.Diagram)
+                    .ToList();
+                Diagram.Links.Remove(linksToRemove);
+
+                var existingStateLinkIds = diagramLinkPairs
+                    .Where(p => p.State is not null)
+                    .Select(p => p.State!.Id)
+                    .ToHashSet();
+
+                foreach (var (id, link) in editor.Links)
+                {
+                    if (existingStateLinkIds.Contains(id)) continue;
+                    if (!nodeById.TryGetValue(link.SourceStepId, out var sourceNode)) continue;
+                    if (!nodeById.TryGetValue(link.TargetStepId, out var targetNode)) continue;
+
+                    var sourcePort = sourceNode.GetPort(PortAlignment.Bottom) ?? sourceNode.Ports.FirstOrDefault();
+                    var targetPort = targetNode.GetPort(PortAlignment.Top) ?? targetNode.Ports.FirstOrDefault();
+                    if (sourcePort is null || targetPort is null) continue;
+
+                    var diagramLink = new LinkModel(sourcePort, targetPort)
+                    {
+                        TargetMarker = LinkMarker.Arrow
                     };
-                    if (newNode != null)
-                    {
-                        Diagram.Nodes.Add(newNode);
-                        nodeById[step.Id] = newNode;
-                        newlyAddedModels.Add(newNode);
-                    }
-                }
-                else
-                {
-                    if (existingNode.Title != step.Name)
-                    {
-                        existingNode.Title = step.Name;
-                        existingNode.Refresh();
-                    }
-                    existingNode.MarkSynced(step.Position);
-                }
-            }
-
-            // 2. Синхронизация линков
-            var diagramLinksByMatch = Diagram.Links
-                .Where(l => l.Target is SinglePortAnchor)
-                .Select(l => (Diagram: l, State: TryMatchToState(l, document)))
-                .ToList();
-
-            var linksToRemove = diagramLinksByMatch
-                .Where(p => p.State == null)
-                .Select(p => p.Diagram)
-                .ToList();
-            Diagram.Links.Remove(linksToRemove);
-
-            var existingStateLinkIds = diagramLinksByMatch
-                .Where(p => p.State != null)
-                .Select(p => p.State!.Id)
-                .ToHashSet();
-
-            foreach (var link in document.Links.Values)
-            {
-                if (existingStateLinkIds.Contains(link.Id)) continue;
-
-                if (!nodeById.TryGetValue(link.SourceNodeId, out var sourceNode)) continue;
-                if (!nodeById.TryGetValue(link.TargetNodeId, out var targetNode)) continue;
-
-                var sourcePort = sourceNode.Ports.FirstOrDefault(p => p.Alignment.ToString() == link.SourcePortId);
-                var targetPort = targetNode.Ports.FirstOrDefault(p => p.Alignment.ToString() == link.TargetPortId);
-
-                if (sourcePort != null && targetPort != null)
-                {
-                    var diagramLink = new Blazor.Diagrams.Core.Models.LinkModel(sourcePort, targetPort);
                     Diagram.Links.Add(diagramLink);
                 }
-            }
 
-            // Отложенное выделение свежесозданных моделей: применится в OnAfterRenderAsync,
-            // когда Blazor отрендерит DOM-узлы, без магической Task.Delay-задержки
-            if (!_isInitialSync && newlyAddedModels.Count > 0)
+                if (!_isInitialSync && newlyAdded.Count > 0)
+                {
+                    _pendingSelection = newlyAdded;
+                }
+                _isInitialSync = false;
+
+                StateHasChanged();
+            }
+            finally
             {
-                _pendingSelection = newlyAddedModels;
+                _isSyncing = false;
             }
-
-            _isInitialSync = false;
-            
-            StateHasChanged();
-            _isSyncing = false;
         });
     }
 
-    // Вспомогательный метод для матчинга линков движка с контрактами Fluxor
-    private bool MatchLink(Blazor.Diagrams.Core.Models.Base.BaseLinkModel diagramLink, WorkflowLink stateLink)
-    {
-        var sourcePort = (diagramLink.Source as SinglePortAnchor)?.Port;
-        var targetPort = (diagramLink.Target as SinglePortAnchor)?.Port;
-
-        if (sourcePort?.Parent is WorkflowNodeModel sNode && targetPort?.Parent is WorkflowNodeModel tNode)
-        {
-            return sNode.StepId == stateLink.SourceNodeId &&
-                   sourcePort.Alignment.ToString() == stateLink.SourcePortId &&
-                   tNode.StepId == stateLink.TargetNodeId &&
-                   targetPort.Alignment.ToString() == stateLink.TargetPortId;
-        }
-        return false;
-    }
-
-    private static WorkflowLink? TryMatchToState(
+    private static EditorLink? TryMatchToState(
         Blazor.Diagrams.Core.Models.Base.BaseLinkModel diagramLink,
-        WorkflowDocument document)
+        EditorDocument editor)
     {
         var sourcePort = (diagramLink.Source as SinglePortAnchor)?.Port;
         var targetPort = (diagramLink.Target as SinglePortAnchor)?.Port;
-        if (sourcePort?.Parent is not WorkflowNodeModel sNode) return null;
-        if (targetPort?.Parent is not WorkflowNodeModel tNode) return null;
+        if (sourcePort?.Parent is not WorkflowNodeModel src) return null;
+        if (targetPort?.Parent is not WorkflowNodeModel tgt) return null;
 
-        var sourcePortId = sourcePort.Alignment.ToString();
-        var targetPortId = targetPort.Alignment.ToString();
-
-        foreach (var link in document.Links.Values)
-        {
-            if (link.SourceNodeId == sNode.StepId &&
-                link.TargetNodeId == tNode.StepId &&
-                link.SourcePortId == sourcePortId &&
-                link.TargetPortId == targetPortId)
-            {
-                return link;
-            }
-        }
-        return null;
+        return editor.Links.Values.FirstOrDefault(l =>
+            l.SourceStepId == src.StepId && l.TargetStepId == tgt.StepId);
     }
 
-    private IReadOnlyList<SelectableModel> CurrentSelection()
-        => Diagram.GetSelectedModels().OfType<SelectableModel>().ToList();
+    private IReadOnlyList<SelectableModel> CurrentSelection() =>
+        Diagram.GetSelectedModels().OfType<SelectableModel>().ToList();
 
-    private void OnDiagramSelectionChanged(SelectableModel _)
-    {
-        // Срабатывает на каждое изменение выделения; передаём родителю весь актуальный набор.
+    private void OnDiagramSelectionChanged(SelectableModel _) =>
         OnSelectionChanged.InvokeAsync(CurrentSelection());
-    }
 
     private void OnDiagramPointerDown(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
-        if (e.Button == 1) // СКМ — панорамирование
+        if (e.Button == 1)
         {
             _isMmbPanning = true;
             _mmbPanLastX = e.ClientX;
@@ -290,8 +244,7 @@
             return;
         }
 
-        // Запускаем рамку выделения только при ЛКМ по пустому холсту
-        if (e.Button != 0 || model != null) return;
+        if (e.Button != 0 || model is not null) return;
 
         var canvasPoint = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
         _isBoxSelecting = true;
@@ -307,10 +260,9 @@
 
     private void OnDiagramPointerMove(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
-        // Сохраняем последние координаты для Ctrl+V
         _lastClientX = e.ClientX;
         _lastClientY = e.ClientY;
-        
+
         if (_isMmbPanning)
         {
             Diagram.UpdatePan(e.ClientX - _mmbPanLastX, e.ClientY - _mmbPanLastY);
@@ -324,23 +276,21 @@
         _boxCurrentScreenX = e.ClientX;
         _boxCurrentScreenY = e.ClientY;
 
-        // Throttle box-select repaint до ~60fps; иначе StateHasChanged() дёргается на каждый pixel-move
         var nowTicks = Environment.TickCount64;
         if (nowTicks - _boxSelectLastFrameTicks < BoxSelectFrameThrottleMs) return;
         _boxSelectLastFrameTicks = nowTicks;
-
         StateHasChanged();
     }
-    
+
     private void OnDiagramPointerUp(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
-        if (e.Button is 1) // СКМ — завершение панорамирования
+        if (e.Button is 1)
         {
             _isMmbPanning = false;
             return;
         }
 
-        if (e.Button is 0) // Левая кнопка мыши
+        if (e.Button is 0)
         {
             if (_isBoxSelecting)
             {
@@ -348,25 +298,18 @@
                 return;
             }
 
-            if (!State.Value.OpenDocuments.TryGetValue(WorkflowId, out _)) return;
-
-            // Собираем сдвиги, сравнивая текущую позицию узла с последней синхронизированной.
-            // Так узел можно осознанно переместить в (0,0), и при этом мы не диспатчим ложные события
-            // для узлов, чью позицию холст ещё не успел инициализировать.
-            var moves = new List<(string StepId, CanvasPosition NewPosition)>();
+            // Сохраняем UI-only позиции узлов в EditorDocument.NodePositions
+            if (!State.Value.OpenDocuments.ContainsKey(Name)) return;
             foreach (var node in Diagram.Nodes.OfType<WorkflowNodeModel>())
             {
                 var current = new CanvasPosition(node.Position.X, node.Position.Y);
                 if (current == node.LastSyncedPosition) continue;
 
-                moves.Add((node.StepId, current));
+                Dispatcher.Dispatch(new MoveStepAction(Name, node.StepId, current));
                 node.MarkSynced(current);
             }
-
-            if (moves.Count > 0)
-                Dispatcher.Dispatch(new MoveStepsAction(WorkflowId, moves));
         }
-        else if (e.Button is 2) // Правая кнопка мыши
+        else if (e.Button is 2)
         {
             var selection = CurrentSelection();
             if (model is SelectableModel target && !selection.Contains(target))
@@ -377,51 +320,23 @@
             OnContextMenuRequested.InvokeAsync((selection, canvasPoint.X, canvasPoint.Y));
         }
     }
-    
+
     private void OnDiagramKeyDown(Blazor.Diagrams.Core.Events.KeyboardEventArgs e)
     {
-        // Если сейчас редактируется имя узла, игнорируем нажатия клавиш на холсте
-        if (State.Value.EditingStepId != null) return;
+        if (State.Value.EditingStepId is not null) return;
+        if (!e.CtrlKey) return;
 
-        // Проверяем нажатие Ctrl
-        if (e.CtrlKey)
+        if ((e.Key is "z" or "Z" || e.Code == "KeyZ") && !e.ShiftKey)
         {
-            // Логика копирования (Ctrl+C)
-            if (e.Key == "c" || e.Key == "C" || e.Code == "KeyC")
-            {
-                var selection = CurrentSelection();
-                // Проверяем, есть ли что копировать (узлы или линки)
-                if (selection.OfType<WorkflowNodeModel>().Any() || selection.OfType<LinkModel>().Any())
-                {
-                    Dispatcher.Dispatch(new CopySelectionAction(selection));
-                }
-            }
-            // Логика вставки (Ctrl+V)
-            else if (e.Key == "v" || e.Key == "V" || e.Code == "KeyV")
-            {
-                if (State.Value.Clipboard != null)
-                {
-                    // Переводим экранные координаты курсора мыши в координаты холста (с учетом зума и панорамирования)
-                    var canvasPoint = Diagram.GetRelativeMousePoint(_lastClientX, _lastClientY);
-                    Dispatcher.Dispatch(new PasteClipboardAction(canvasPoint.X, canvasPoint.Y));
-                }
-            }
-            // Undo: Ctrl+Z (без Shift)
-            else if ((e.Key == "z" || e.Key == "Z" || e.Code == "KeyZ") && !e.ShiftKey)
-            {
-                if (State.Value.CanUndo(WorkflowId))
-                    Dispatcher.Dispatch(new UndoAction(WorkflowId));
-            }
-            // Redo: Ctrl+Y или Ctrl+Shift+Z
-            else if (e.Key == "y" || e.Key == "Y" || e.Code == "KeyY" ||
-                     ((e.Key == "z" || e.Key == "Z" || e.Code == "KeyZ") && e.ShiftKey))
-            {
-                if (State.Value.CanRedo(WorkflowId))
-                    Dispatcher.Dispatch(new RedoAction(WorkflowId));
-            }
+            if (State.Value.CanUndo(Name)) Dispatcher.Dispatch(new UndoAction(Name));
+        }
+        else if (e.Key is "y" or "Y" || e.Code == "KeyY"
+                 || ((e.Key is "z" or "Z" || e.Code == "KeyZ") && e.ShiftKey))
+        {
+            if (State.Value.CanRedo(Name)) Dispatcher.Dispatch(new RedoAction(Name));
         }
     }
-    
+
     private void FinishBoxSelection(Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
         var endCanvas = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
@@ -432,54 +347,36 @@
 
         _isBoxSelecting = false;
 
-        // Если пользователь по сути просто кликнул — рамка слишком маленькая, рассматриваем как обычный клик по холсту
         if (Math.Abs(endCanvas.X - _boxStartCanvasX) < 4 && Math.Abs(endCanvas.Y - _boxStartCanvasY) < 4)
         {
             StateHasChanged();
             return;
         }
 
-        if (!_boxAdditive)
-        {
-            Diagram.UnselectAll();
-        }
+        if (!_boxAdditive) Diagram.UnselectAll();
 
         foreach (var node in Diagram.Nodes)
         {
-            var size = node.Size;
-            if (size == null) continue; // Узел ещё не отрисован — пропускаем
-
+            if (node.Size is null) continue;
             var pos = node.Position;
-            var nodeRight = pos.X + size.Width;
-            var nodeBottom = pos.Y + size.Height;
-
-            var intersects = pos.X < maxX && nodeRight > minX && pos.Y < maxY && nodeBottom > minY;
-            if (intersects)
-            {
+            var nodeRight = pos.X + node.Size.Width;
+            var nodeBottom = pos.Y + node.Size.Height;
+            if (pos.X < maxX && nodeRight > minX && pos.Y < maxY && nodeBottom > minY)
                 Diagram.SelectModel(node, unselectOthers: false);
-            }
         }
 
-        // Линки тоже могут попадать в рамку: считаем «попавшим», если центр линии источник→цель внутри рамки
         foreach (var link in Diagram.Links)
         {
-            var sourcePort = (link.Source as SinglePortAnchor)?.Port;
-            var targetPort = (link.Target as SinglePortAnchor)?.Port;
-            if (sourcePort?.Parent is not WorkflowNodeModel sourceNode) continue;
-            if (targetPort?.Parent is not WorkflowNodeModel targetNode) continue;
-            if (sourceNode.Size == null || targetNode.Size == null) continue;
+            var sp = (link.Source as SinglePortAnchor)?.Port;
+            var tp = (link.Target as SinglePortAnchor)?.Port;
+            if (sp?.Parent is not WorkflowNodeModel sn) continue;
+            if (tp?.Parent is not WorkflowNodeModel tn) continue;
+            if (sn.Size is null || tn.Size is null) continue;
 
-            var sx = sourceNode.Position.X + sourceNode.Size.Width / 2;
-            var sy = sourceNode.Position.Y + sourceNode.Size.Height / 2;
-            var tx = targetNode.Position.X + targetNode.Size.Width / 2;
-            var ty = targetNode.Position.Y + targetNode.Size.Height / 2;
-            var midX = (sx + tx) / 2;
-            var midY = (sy + ty) / 2;
-
+            var midX = (sn.Position.X + sn.Size.Width / 2 + tn.Position.X + tn.Size.Width / 2) / 2;
+            var midY = (sn.Position.Y + sn.Size.Height / 2 + tn.Position.Y + tn.Size.Height / 2) / 2;
             if (midX >= minX && midX <= maxX && midY >= minY && midY <= maxY)
-            {
                 Diagram.SelectModel(link, unselectOthers: false);
-            }
         }
 
         StateHasChanged();
@@ -487,28 +384,48 @@
 
     private void OnLinkAdded(Blazor.Diagrams.Core.Models.Base.BaseLinkModel link)
     {
+        link.TargetMarker = LinkMarker.Arrow;
+
         Action<Blazor.Diagrams.Core.Models.Base.BaseLinkModel,
-            Blazor.Diagrams.Core.Anchors.Anchor,
-            Blazor.Diagrams.Core.Anchors.Anchor> handler = (l, _, newTarget) =>
+               Blazor.Diagrams.Core.Anchors.Anchor,
+               Blazor.Diagrams.Core.Anchors.Anchor> handler = (l, _, newTarget) =>
         {
             if (_isSyncing) return;
+            var sp = (l.Source as SinglePortAnchor)?.Port;
+            var tp = (newTarget as SinglePortAnchor)?.Port;
+            if (sp?.Parent is not WorkflowNodeModel src) return;
+            if (tp?.Parent is not WorkflowNodeModel tgt) return;
 
-            var sourcePort = (l.Source as SinglePortAnchor)?.Port;
-            var targetPort = (newTarget as SinglePortAnchor)?.Port;
-
-            if (sourcePort?.Parent is WorkflowNodeModel sourceNode && targetPort?.Parent is WorkflowNodeModel targetNode)
+            // Линейная цепочка: запрещаем самоссылку и >1 исходящую/входящую.
+            if (src.StepId == tgt.StepId)
             {
-                var workflowLink = new WorkflowLink
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    SourceNodeId = sourceNode.StepId,
-                    SourcePortId = sourcePort.Alignment.ToString(),
-                    TargetNodeId = targetNode.StepId,
-                    TargetPortId = targetPort.Alignment.ToString()
-                };
-
-                Dispatcher.Dispatch(new AddLinkAction(WorkflowId, workflowLink));
+                Snackbar.Add("Шаг не может ссылаться на самого себя", MudBlazor.Severity.Warning);
+                Diagram.Links.Remove(l);
+                return;
             }
+            if (State.Value.OpenDocuments.TryGetValue(Name, out var editor))
+            {
+                if (editor.Links.Values.Any(existing => existing.TargetStepId == tgt.StepId))
+                {
+                    Snackbar.Add("У шага уже есть входящая связь", MudBlazor.Severity.Warning);
+                    Diagram.Links.Remove(l);
+                    return;
+                }
+                if (editor.Links.Values.Any(existing => existing.SourceStepId == src.StepId))
+                {
+                    Snackbar.Add("У шага уже есть исходящая связь", MudBlazor.Severity.Warning);
+                    Diagram.Links.Remove(l);
+                    return;
+                }
+            }
+
+            var editorLink = new EditorLink
+            {
+                Id = Guid.NewGuid().ToString(),
+                SourceStepId = src.StepId,
+                TargetStepId = tgt.StepId
+            };
+            Dispatcher.Dispatch(new AddLinkAction(Name, editorLink));
         };
 
         link.TargetChanged += handler;
@@ -518,37 +435,28 @@
     private void OnLinkRemoved(Blazor.Diagrams.Core.Models.Base.BaseLinkModel link)
     {
         if (_linkTargetChangedHandlers.Remove(link, out var handler))
-        {
             link.TargetChanged -= handler;
-        }
 
-        if (_isSyncing || !(link.Target is SinglePortAnchor)) return;
+        if (_isSyncing || link.Target is not SinglePortAnchor) return;
 
-        if (State.Value.OpenDocuments.TryGetValue(WorkflowId, out var document))
+        if (State.Value.OpenDocuments.TryGetValue(Name, out var editor))
         {
-            var stateLink = TryMatchToState(link, document);
-            if (stateLink != null)
-            {
-                Dispatcher.Dispatch(new RemoveLinkAction(WorkflowId, stateLink.Id));
-            }
+            var stateLink = TryMatchToState(link, editor);
+            if (stateLink is not null)
+                Dispatcher.Dispatch(new RemoveLinksAction(Name, [stateLink.Id]));
         }
     }
-    
+
     private void OnNodeRemoved(NodeModel node)
     {
-        // Защита от зацикливания: игнорируем удаление, если оно вызвано синхронизацией стейта
         if (_isSyncing) return;
-    
         if (node is WorkflowNodeModel wNode)
-        {
-            // Отправляем сигнал во Fluxor для удаления из стейта
-            Dispatcher.Dispatch(new RemoveStepAction(WorkflowId, wNode.StepId));
-        }
+            Dispatcher.Dispatch(new RemoveStepsAction(Name, [wNode.StepId]));
     }
-    
+
     public (double X, double Y)? GetViewportCenter()
     {
-        if (Diagram.Container == null) return null;
+        if (Diagram.Container is null) return null;
         var cx = Diagram.Container.Left + Diagram.Container.Width / 2;
         var cy = Diagram.Container.Top + Diagram.Container.Height / 2;
         var pt = Diagram.GetRelativeMousePoint(cx, cy);
@@ -568,9 +476,7 @@
         Diagram.Nodes.Removed -= OnNodeRemoved;
 
         foreach (var (link, handler) in _linkTargetChangedHandlers)
-        {
             link.TargetChanged -= handler;
-        }
         _linkTargetChangedHandlers.Clear();
     }
 }

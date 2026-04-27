@@ -19,9 +19,9 @@ public sealed class WorkflowStorageService(
 {
     public override async Task<GetWorkflowResponse> GetWorkflow(GetWorkflowRequest request, ServerCallContext context)
     {
-        logger.LogInformation("get workflow {WorkflowId}", request.WorkflowId);
+        logger.LogInformation("get workflow {Name}", request.Name);
 
-        var result = await getHandler.HandleAsync(new GetWorkflowQuery(request.WorkflowId), context.CancellationToken);
+        var result = await getHandler.HandleAsync(new GetWorkflowQuery(request.Name), context.CancellationToken);
         if (!result.IsSuccess) throw result.Error!.ToRpcException();
 
         return new GetWorkflowResponse { Document = WorkflowProtoMapper.ToProto(result.Value!) };
@@ -32,8 +32,8 @@ public sealed class WorkflowStorageService(
         if (request.Document is null)
             throw new RpcException(new Status(StatusCode.InvalidArgument, "document is required"));
 
-        logger.LogInformation("save workflow {WorkflowId} ({StepCount} steps)",
-            request.Document.WorkflowId, request.Document.Steps.Count);
+        logger.LogInformation("save workflow {Name} ({StepCount} steps)",
+            request.Document.Name, request.Document.Steps.Count);
 
         var document = WorkflowProtoMapper.FromProto(request.Document);
         var result = await saveHandler.HandleAsync(new SaveWorkflowCommand(document), context.CancellationToken);
@@ -52,9 +52,8 @@ public sealed class WorkflowStorageService(
         {
             response.Items.Add(new WorkflowSummary
             {
-                WorkflowId = summary.WorkflowId,
                 Name = summary.Name,
-                CreatedAt = Timestamp.FromDateTime(EnsureUtc(summary.CreatedAt)),
+                Description = summary.Description,
                 UpdatedAt = Timestamp.FromDateTime(EnsureUtc(summary.UpdatedAt))
             });
         }
@@ -63,7 +62,7 @@ public sealed class WorkflowStorageService(
 
     public override async Task<DeleteWorkflowResponse> DeleteWorkflow(DeleteWorkflowRequest request, ServerCallContext context)
     {
-        var result = await deleteHandler.HandleAsync(new DeleteWorkflowCommand(request.WorkflowId), context.CancellationToken);
+        var result = await deleteHandler.HandleAsync(new DeleteWorkflowCommand(request.Name), context.CancellationToken);
         if (!result.IsSuccess) throw result.Error!.ToRpcException();
 
         return new DeleteWorkflowResponse { Deleted = result.Value };

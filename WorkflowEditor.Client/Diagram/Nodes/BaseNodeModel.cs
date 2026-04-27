@@ -1,13 +1,17 @@
 using Blazor.Diagrams.Core.Models;
+using WorkflowEditor.Core.Models;
 using WorkflowEditor.Core.Models.Steps;
 
 namespace WorkflowEditor.Client.Diagram.Nodes;
 
-public class BaseNodeModel : WorkflowNodeModel
+public sealed class BaseNodeModel : WorkflowNodeModel
 {
-    public BaseNodeModel(BaseStep step) : base(step)
+    public string StepKind { get; }
+
+    public BaseNodeModel(BaseStep step, CanvasPosition position) : base(step, position)
     {
-        // КРИТИЧЕСКИ ВАЖНО: Регистрируем якоря для линков
+        StepKind = step.StepKind;
+
         AddPort(PortAlignment.Top);
         AddPort(PortAlignment.Bottom);
         AddPort(PortAlignment.Left);

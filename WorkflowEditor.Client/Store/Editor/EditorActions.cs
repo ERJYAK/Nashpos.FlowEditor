@@ -1,56 +1,54 @@
-using Blazor.Diagrams.Core.Models.Base;
-using Microsoft.AspNetCore.Components.Web;
+using WorkflowEditor.Core.Models;
 
 namespace WorkflowEditor.Client.Store.Editor;
 
-using Core.Models;
+// Жизненный цикл вкладок --------------------------------------------------------
+public sealed record OpenWorkflowAction(WorkflowDocument Document);
+public sealed record SwitchTabAction(string Name);
+public sealed record CloseTabAction(string Name);
 
-// Навигация и жизненный цикл вкладок
-public record OpenWorkflowAction(WorkflowDocument Document);
-public record SwitchTabAction(string WorkflowId);
-public record CloseTabAction(string WorkflowId);
+// Создание нового процесса — сначала сигнал «пользователь нажал кнопку и ввёл имя»,
+// эффект делает черновой WorkflowDocument и открывает его.
+public sealed record CreateWorkflowRequestedAction(string Name);
 
-// Мутации графа (работают в контексте ActiveDocumentId)
-public record AddStepAction(string WorkflowId, WorkflowStep Step);
-public record RemoveStepAction(string WorkflowId, string StepId);
-public record MoveStepsAction(
-    string WorkflowId,
-    IReadOnlyList<(string StepId, CanvasPosition NewPosition)> Moves);
+// Загрузка с сервера ------------------------------------------------------------
+public sealed record LoadWorkflowAction(string Name);
+public sealed record LoadWorkflowSuccessAction(WorkflowDocument Document);
+public sealed record LoadWorkflowFailedAction(string Name, string ErrorMessage);
 
-// Инициирует процесс сохранения
-public record SaveWorkflowAction(string WorkflowId);
+// Сохранение --------------------------------------------------------------------
+public sealed record SaveWorkflowAction(string Name);
+public sealed record SaveWorkflowSuccessAction(string Name);
+public sealed record SaveWorkflowFailedAction(string Name, string ErrorMessage);
 
-// Результаты выполнения (их будут слушать редьюсеры, чтобы, например, скрыть лоадер)
-public record SaveWorkflowSuccessAction(string WorkflowId);
-public record SaveWorkflowFailedAction(string WorkflowId, string ErrorMessage);
+// Импорт JSON-файла (drag-drop / file-picker) -----------------------------------
+public sealed record ImportFileRequestedAction(string FileName, string Payload);
+public sealed record ImportFileFailedAction(string FileName, string ErrorMessage);
 
-// Инициация загрузки
-public record LoadWorkflowAction(string WorkflowId);
+// Lazy-fetch для отображения subflow внутри узла --------------------------------
+public sealed record LoadSubflowAction(string Name);
+public sealed record LoadSubflowSuccessAction(string Name, WorkflowDocument Document);
+public sealed record LoadSubflowFailedAction(string Name, string ErrorMessage);
 
-// Успешный результат (передаем уже десериализованный документ)
-public record LoadWorkflowSuccessAction(WorkflowDocument Document);
+// Двойной клик по subflow-узлу: «попробуй загрузить, если нет — открой пустой черновик».
+public sealed record OpenSubflowAction(string Name);
 
-// Ошибка загрузки
-public record LoadWorkflowFailedAction(string ErrorMessage);
+// Мутации шагов -----------------------------------------------------------------
+public sealed record AddStepAction(string Name, WorkflowStep Step, CanvasPosition Position);
+public sealed record RemoveStepsAction(string Name, IReadOnlyList<string> StepIds);
+public sealed record UpdateStepDescriptionAction(string Name, string StepId, string NewDescription);
+public sealed record UpdateBaseStepKindAction(string Name, string StepId, string NewStepKind);
+public sealed record UpdateSubflowNameAction(string Name, string StepId, string NewSubflowName);
+public sealed record MoveStepAction(string Name, string StepId, CanvasPosition NewPosition);
 
-// Сигнал «пользователь нажал Создать процесс» — обрабатывается эффектом,
-// который сам создаёт документ и диспатчит OpenWorkflowAction.
-public record CreateWorkflowRequestedAction;
+// Связи (UI-only) ---------------------------------------------------------------
+public sealed record AddLinkAction(string Name, EditorLink Link);
+public sealed record RemoveLinksAction(string Name, IReadOnlyList<string> LinkIds);
 
-// Мутации связей (линков)
-public record AddLinkAction(string WorkflowId, WorkflowLink Link);
-public record RemoveLinkAction(string WorkflowId, string LinkId);
+// Properties-панель -------------------------------------------------------------
+public sealed record StartEditingStepAction(string StepId);
+public sealed record StopEditingStepAction;
 
-// Добавь это в EditorActions.cs
-public record RenameStepAction(string WorkflowId, string StepId, string NewName);
-
-public record StartEditingStepAction(string StepId);
-public record StopEditingStepAction();
-
-public record CopySelectionAction(IReadOnlyList<SelectableModel> Selected);
-public record PasteClipboardAction(double X, double Y);
-public record DeleteSelectionAction(IReadOnlyList<SelectableModel> Selected);
-
-// Undo/Redo на уровне документа
-public record UndoAction(string WorkflowId);
-public record RedoAction(string WorkflowId);
+// Undo / Redo на уровне документа ----------------------------------------------
+public sealed record UndoAction(string Name);
+public sealed record RedoAction(string Name);

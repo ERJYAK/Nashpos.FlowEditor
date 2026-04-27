@@ -1,52 +1,41 @@
-using System.Collections.Immutable;
+using System.Text.RegularExpressions;
 using FluentValidation;
 using WorkflowEditor.Core.Models;
+using WorkflowEditor.Core.Models.Steps;
 
 namespace WorkflowEditor.Application.Workflows.Save;
 
-public sealed class SaveWorkflowValidator : AbstractValidator<SaveWorkflowCommand>
+public sealed partial class SaveWorkflowValidator : AbstractValidator<SaveWorkflowCommand>
 {
+    [GeneratedRegex(@"^[a-z0-9][a-z0-9-]*$", RegexOptions.Compiled)]
+    private static partial Regex NameRegex();
+
     public SaveWorkflowValidator()
     {
         RuleFor(c => c.Document).NotNull();
 
         When(c => c.Document is not null, () =>
         {
-            RuleFor(c => c.Document.WorkflowId)
-                .NotEmpty()
-                .Must(id => Guid.TryParse(id, out _))
-                .WithMessage("workflowId must be a valid GUID");
-
             RuleFor(c => c.Document.Name)
                 .NotEmpty()
-                .MaximumLength(200);
+                .MaximumLength(64)
+                .Matches(NameRegex())
+                .WithMessage("name must be lowercase letters, digits and hyphens only (e.g. 'import-prices')");
 
-            RuleFor(c => c.Document.Steps)
-                .Must(StepKeysMatchIds)
-                .WithMessage("step dictionary key must equal step.Id");
+            RuleFor(c => c.Document.Description).MaximumLength(500);
 
-            RuleFor(c => c.Document)
-                .Must(LinksReferenceExistingSteps)
-                .WithMessage("every link must reference existing source and target steps");
+            RuleForEach(c => c.Document.Steps).ChildRules(step =>
+            {
+                step.RuleFor(s => s).Must(BeValidStep)
+                    .WithMessage("step must be either BaseStep with non-empty StepKind or SubflowStep with non-empty SubflowName");
+            });
         });
     }
 
-    private static bool StepKeysMatchIds(ImmutableDictionary<string, WorkflowStep> steps)
+    private static bool BeValidStep(WorkflowStep step) => step switch
     {
-        foreach (var (key, step) in steps)
-        {
-            if (!string.Equals(key, step.Id, StringComparison.Ordinal)) return false;
-        }
-        return true;
-    }
-
-    private static bool LinksReferenceExistingSteps(WorkflowDocument doc)
-    {
-        foreach (var link in doc.Links.Values)
-        {
-            if (!doc.Steps.ContainsKey(link.SourceNodeId)) return false;
-            if (!doc.Steps.ContainsKey(link.TargetNodeId)) return false;
-        }
-        return true;
-    }
+        BaseStep b => !string.IsNullOrWhiteSpace(b.StepKind),
+        SubflowStep s => !string.IsNullOrWhiteSpace(s.SubflowName),
+        _ => false
+    };
 }

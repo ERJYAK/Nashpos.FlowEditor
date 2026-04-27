@@ -1,130 +1,126 @@
-using System.Collections.Immutable;
 using Fluxor;
 using NSubstitute;
 using WorkflowEditor.Client.Services.Api;
 using WorkflowEditor.Client.Store.Editor;
 using WorkflowEditor.Core.Models;
-using WorkflowEditor.Core.Models.Steps;
-using static WorkflowEditor.Tests.Client.TestKit.EditorTestData;
+using WorkflowEditor.Tests.Client.TestKit;
 
 namespace WorkflowEditor.Tests.Client.Store.Editor;
 
 public class EditorEffectsTests
 {
-    private readonly IWorkflowApi _api = Substitute.For<IWorkflowApi>();
-    private readonly IDispatcher _dispatcher = Substitute.For<IDispatcher>();
-    private readonly IState<EditorState> _state = Substitute.For<IState<EditorState>>();
-
-    private EditorEffects CreateEffects(EditorState? initial = null)
+    private static (EditorEffects effects, IDispatcher dispatcher, IWorkflowApi api, EditorState state) Setup(
+        EditorState? initial = null)
     {
-        _state.Value.Returns(initial ?? new EditorState());
-        return new EditorEffects(_api, _state);
+        var api = Substitute.For<IWorkflowApi>();
+        var stateContainer = Substitute.For<IState<EditorState>>();
+        var s = initial ?? new EditorState();
+        stateContainer.Value.Returns(s);
+
+        var dispatcher = Substitute.For<IDispatcher>();
+        var effects = new EditorEffects(api, stateContainer);
+        return (effects, dispatcher, api, s);
     }
 
     [Fact]
-    public async Task HandleLoadWorkflow_dispatches_success_when_api_returns_document()
+    public async Task LoadWorkflow_dispatches_Success_when_api_returns_document()
     {
-        var doc = Document("wf-1", BaseStep("s-1"));
-        _api.GetAsync("wf-1", Arg.Any<CancellationToken>())
-            .Returns(ApiResult<WorkflowDocument>.Success(doc));
-        var effects = CreateEffects();
+        var (effects, dispatcher, api, _) = Setup();
+        var doc = EditorTestData.Document("import", steps: EditorTestData.Base("k"));
+        api.GetAsync("import", Arg.Any<CancellationToken>()).Returns(ApiResult<WorkflowDocument>.Success(doc));
 
-        await effects.HandleLoadWorkflow(new LoadWorkflowAction("wf-1"), _dispatcher);
+        await effects.HandleLoadWorkflow(new LoadWorkflowAction("import"), dispatcher);
 
-        _dispatcher.Received().Dispatch(Arg.Is<LoadWorkflowSuccessAction>(a => a.Document == doc));
+        dispatcher.Received(1).Dispatch(Arg.Is<LoadWorkflowSuccessAction>(a => ReferenceEquals(a.Document, doc)));
     }
 
     [Fact]
-    public async Task HandleLoadWorkflow_dispatches_failed_with_friendly_message_on_NotFound()
+    public async Task LoadWorkflow_dispatches_Failed_with_friendly_message_on_NotFound()
     {
-        _api.GetAsync("wf-missing", Arg.Any<CancellationToken>())
-            .Returns(ApiResult<WorkflowDocument>.NotFound());
-        var effects = CreateEffects();
+        var (effects, dispatcher, api, _) = Setup();
+        api.GetAsync("missing", Arg.Any<CancellationToken>()).Returns(ApiResult<WorkflowDocument>.NotFound());
 
-        await effects.HandleLoadWorkflow(new LoadWorkflowAction("wf-missing"), _dispatcher);
+        await effects.HandleLoadWorkflow(new LoadWorkflowAction("missing"), dispatcher);
 
-        _dispatcher.Received().Dispatch(Arg.Is<LoadWorkflowFailedAction>(a =>
-            a.ErrorMessage.Contains("wf-missing")));
+        dispatcher.Received(1).Dispatch(Arg.Is<LoadWorkflowFailedAction>(a =>
+            a.Name == "missing" && a.ErrorMessage.Contains("missing")));
     }
 
     [Fact]
-    public async Task HandleLoadWorkflow_dispatches_failed_with_api_error_on_network_failure()
+    public async Task SaveWorkflow_validates_linearity_and_dispatches_Failed_on_branching_graph()
     {
-        _api.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ApiResult<WorkflowDocument>.Network("сервер недоступен"));
-        var effects = CreateEffects();
+        var doc = EditorTestData.Document("import", "",
+            EditorTestData.Base("a", id: "1"),
+            EditorTestData.Base("b", id: "2"),
+            EditorTestData.Base("c", id: "3"));
+        var initial = EditorReducers.ReduceOpenWorkflowAction(new EditorState(), new OpenWorkflowAction(doc));
 
-        await effects.HandleLoadWorkflow(new LoadWorkflowAction("wf-1"), _dispatcher);
-
-        _dispatcher.Received().Dispatch(Arg.Is<LoadWorkflowFailedAction>(a =>
-            a.ErrorMessage.Contains("сервер недоступен")));
-    }
-
-    [Fact]
-    public async Task HandleSaveWorkflow_dispatches_failure_when_document_is_not_in_state()
-    {
-        var effects = CreateEffects(new EditorState());
-
-        await effects.HandleSaveWorkflow(new SaveWorkflowAction("wf-1"), _dispatcher);
-
-        _dispatcher.Received().Dispatch(Arg.Is<SaveWorkflowFailedAction>(a => a.WorkflowId == "wf-1"));
-        await _api.DidNotReceive().SaveAsync(Arg.Any<WorkflowDocument>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task HandleSaveWorkflow_dispatches_success_when_api_succeeds()
-    {
-        var doc = Document("wf-1");
-        var initial = StateWith(doc);
-        _api.SaveAsync(doc, Arg.Any<CancellationToken>())
-            .Returns(ApiResult<Unit>.Success(Unit.Value));
-        var effects = CreateEffects(initial);
-
-        await effects.HandleSaveWorkflow(new SaveWorkflowAction("wf-1"), _dispatcher);
-
-        _dispatcher.Received().Dispatch(Arg.Is<SaveWorkflowSuccessAction>(a => a.WorkflowId == "wf-1"));
-    }
-
-    [Fact]
-    public async Task HandleSaveWorkflow_dispatches_failure_when_api_fails()
-    {
-        var doc = Document("wf-1");
-        var initial = StateWith(doc);
-        _api.SaveAsync(doc, Arg.Any<CancellationToken>())
-            .Returns(ApiResult<Unit>.ServerError("boom"));
-        var effects = CreateEffects(initial);
-
-        await effects.HandleSaveWorkflow(new SaveWorkflowAction("wf-1"), _dispatcher);
-
-        _dispatcher.Received().Dispatch(Arg.Is<SaveWorkflowFailedAction>(a =>
-            a.WorkflowId == "wf-1" && a.ErrorMessage == "boom"));
-    }
-
-    [Fact]
-    public async Task HandleCreateWorkflowRequested_dispatches_OpenWorkflow_with_new_document()
-    {
-        var effects = CreateEffects(new EditorState());
-
-        await effects.HandleCreateWorkflowRequested(new CreateWorkflowRequestedAction(), _dispatcher);
-
-        _dispatcher.Received().Dispatch(Arg.Is<OpenWorkflowAction>(a =>
-            !string.IsNullOrEmpty(a.Document.WorkflowId)
-            && a.Document.Steps.Count == 0
-            && a.Document.Links.Count == 0));
-    }
-
-    [Fact]
-    public async Task HandleCreateWorkflowRequested_numbers_documents_starting_from_existing_count()
-    {
-        var existing = Document("wf-existing");
-        var initial = new EditorState() with
+        // Заменим линейные links на ветвление 1 → 2, 1 → 3
+        var editor = initial.OpenDocuments["import"];
+        var branched = editor with
         {
-            OpenDocuments = ImmutableDictionary<string, WorkflowDocument>.Empty.SetItem("wf-existing", existing)
+            Links = System.Collections.Immutable.ImmutableDictionary<string, EditorLink>.Empty
+                .Add("l1", new EditorLink { Id = "l1", SourceStepId = "1", TargetStepId = "2" })
+                .Add("l2", new EditorLink { Id = "l2", SourceStepId = "1", TargetStepId = "3" })
         };
-        var effects = CreateEffects(initial);
+        var withBranch = initial with { OpenDocuments = initial.OpenDocuments.SetItem("import", branched) };
 
-        await effects.HandleCreateWorkflowRequested(new CreateWorkflowRequestedAction(), _dispatcher);
+        var (effects, dispatcher, _, _) = Setup(withBranch);
 
-        _dispatcher.Received().Dispatch(Arg.Is<OpenWorkflowAction>(a => a.Document.Name == "Процесс 2"));
+        await effects.HandleSaveWorkflow(new SaveWorkflowAction("import"), dispatcher);
+
+        dispatcher.Received(1).Dispatch(Arg.Is<SaveWorkflowFailedAction>(a => a.Name == "import"));
+    }
+
+    [Fact]
+    public async Task LoadSubflow_dispatches_Success_and_caches_document()
+    {
+        var (effects, dispatcher, api, _) = Setup();
+        var doc = EditorTestData.Document("prepare-import", steps: EditorTestData.Base("k"));
+        api.GetAsync("prepare-import", Arg.Any<CancellationToken>())
+            .Returns(ApiResult<WorkflowDocument>.Success(doc));
+
+        await effects.HandleLoadSubflow(new LoadSubflowAction("prepare-import"), dispatcher);
+
+        dispatcher.Received(1).Dispatch(Arg.Is<LoadSubflowSuccessAction>(a =>
+            a.Name == "prepare-import" && ReferenceEquals(a.Document, doc)));
+    }
+
+    [Fact]
+    public Task ImportFileRequested_dispatches_OpenWorkflow_with_filename_as_Name()
+    {
+        var (effects, dispatcher, _, _) = Setup();
+        const string payload = """
+            { "description": "Import flow", "steps": [ { "step": "apply-import", "description": "Apply" } ] }
+            """;
+
+        return effects.HandleImportFileRequested(
+                new ImportFileRequestedAction("import.json", payload), dispatcher)
+            .ContinueWith(_ =>
+            {
+                dispatcher.Received(1).Dispatch(Arg.Is<OpenWorkflowAction>(a =>
+                    a.Document.Name == "import" && a.Document.Steps.Count == 1));
+            });
+    }
+
+    [Fact]
+    public async Task ImportFileRequested_dispatches_Failed_on_invalid_json()
+    {
+        var (effects, dispatcher, _, _) = Setup();
+
+        await effects.HandleImportFileRequested(
+            new ImportFileRequestedAction("broken.json", "{ not json"), dispatcher);
+
+        dispatcher.Received(1).Dispatch(Arg.Is<ImportFileFailedAction>(a => a.FileName == "broken.json"));
+    }
+
+    [Fact]
+    public Task CreateWorkflowRequested_dispatches_OpenWorkflow_with_provided_name()
+    {
+        var (effects, dispatcher, _, _) = Setup();
+
+        return effects.HandleCreateWorkflowRequested(new CreateWorkflowRequestedAction("new-flow"), dispatcher)
+            .ContinueWith(_ => dispatcher.Received(1).Dispatch(Arg.Is<OpenWorkflowAction>(a =>
+                a.Document.Name == "new-flow" && a.Document.Steps.Count == 0)));
     }
 }

@@ -1,77 +1,63 @@
 using WorkflowEditor.Client.Store.Editor;
-using WorkflowEditor.Core.Models;
 using WorkflowEditor.Tests.Client.TestKit;
-using static WorkflowEditor.Tests.Client.TestKit.EditorTestData;
 
 namespace WorkflowEditor.Tests.Client.Store.Editor;
 
 public class TabLifecycleReducerTests
 {
     [Fact]
-    public void OpenWorkflow_adds_document_and_sets_active()
+    public void Open_adds_document_and_makes_it_active()
     {
-        var state = new EditorState();
-        var doc = Document("wf-1", BaseStep("s-1"));
+        var doc = EditorTestData.Document("import", "Import flow", EditorTestData.Base("apply-import"));
 
-        var next = EditorReducers.ReduceOpenWorkflowAction(state, new OpenWorkflowAction(doc));
+        var state = EditorReducers.ReduceOpenWorkflowAction(new EditorState(), new OpenWorkflowAction(doc));
 
-        next.OpenDocuments.Should().ContainKey("wf-1").WhoseValue.Should().BeSameAs(doc);
-        next.ActiveDocumentId.Should().Be("wf-1");
+        state.OpenDocuments.Keys.Should().Contain("import");
+        state.ActiveDocumentName.Should().Be("import");
+        state.IsDirty("import").Should().BeFalse();
     }
 
     [Fact]
-    public void OpenWorkflow_replaces_existing_document_with_same_id()
+    public void Switch_changes_active_document()
     {
-        var original = Document("wf-1", BaseStep("s-1", "old"));
-        var state = StateWith(original);
-        var updated = Document("wf-1", BaseStep("s-1", "new"));
+        var doc1 = EditorTestData.Document("a", steps: EditorTestData.Base("k"));
+        var doc2 = EditorTestData.Document("b", steps: EditorTestData.Base("k"));
+        var state = EditorReducers.ReduceOpenWorkflowAction(new EditorState(), new OpenWorkflowAction(doc1));
+        state = EditorReducers.ReduceOpenWorkflowAction(state, new OpenWorkflowAction(doc2));
 
-        var next = EditorReducers.ReduceOpenWorkflowAction(state, new OpenWorkflowAction(updated));
+        state = EditorReducers.ReduceSwitchTabAction(state, new SwitchTabAction("a"));
 
-        next.OpenDocuments["wf-1"].Should().BeSameAs(updated);
+        state.ActiveDocumentName.Should().Be("a");
     }
 
     [Fact]
-    public void SwitchTab_changes_active_document()
+    public void Close_removes_document_and_picks_first_remaining_as_active()
     {
-        var doc = Document("wf-1");
-        var state = StateWith(doc, activeId: "other");
+        var doc1 = EditorTestData.Document("a", steps: EditorTestData.Base("k"));
+        var doc2 = EditorTestData.Document("b", steps: EditorTestData.Base("k"));
+        var state = EditorReducers.ReduceOpenWorkflowAction(new EditorState(), new OpenWorkflowAction(doc1));
+        state = EditorReducers.ReduceOpenWorkflowAction(state, new OpenWorkflowAction(doc2));
 
-        var next = EditorReducers.ReduceSwitchTabAction(state, new SwitchTabAction("wf-1"));
+        state = EditorReducers.ReduceCloseTabAction(state, new CloseTabAction("b"));
 
-        next.ActiveDocumentId.Should().Be("wf-1");
+        state.OpenDocuments.Should().ContainSingle().Which.Key.Should().Be("a");
+        state.ActiveDocumentName.Should().Be("a");
     }
 
     [Fact]
-    public void LoadWorkflow_sets_loading_flag()
+    public void Open_with_existing_steps_creates_linear_links_between_consecutive_steps()
     {
-        var state = new EditorState();
+        var doc = EditorTestData.Document("import", "",
+            EditorTestData.Base("a", id: "1"),
+            EditorTestData.Base("b", id: "2"),
+            EditorTestData.Base("c", id: "3"));
 
-        var next = EditorReducers.ReduceLoadWorkflowAction(state, new LoadWorkflowAction("wf-1"));
+        var state = EditorReducers.ReduceOpenWorkflowAction(new EditorState(), new OpenWorkflowAction(doc));
 
-        next.IsLoading.Should().BeTrue();
-    }
-
-    [Fact]
-    public void LoadWorkflowSuccess_clears_loading_and_activates_document()
-    {
-        var state = new EditorState() with { IsLoading = true };
-        var doc = Document("wf-1");
-
-        var next = EditorReducers.ReduceLoadWorkflowSuccessAction(state, new LoadWorkflowSuccessAction(doc));
-
-        next.IsLoading.Should().BeFalse();
-        next.OpenDocuments.Should().ContainKey("wf-1");
-        next.ActiveDocumentId.Should().Be("wf-1");
-    }
-
-    [Fact]
-    public void LoadWorkflowFailed_clears_loading()
-    {
-        var state = new EditorState() with { IsLoading = true };
-
-        var next = EditorReducers.ReduceLoadWorkflowFailedAction(state, new LoadWorkflowFailedAction("oops"));
-
-        next.IsLoading.Should().BeFalse();
+        var editor = state.OpenDocuments["import"];
+        editor.Links.Values.Should().HaveCount(2);
+        editor.Links.Values.Select(l => (l.SourceStepId, l.TargetStepId))
+            .Should().BeEquivalentTo(new[] { ("1", "2"), ("2", "3") });
+        editor.NodePositions.Should().HaveCount(3);
     }
 }

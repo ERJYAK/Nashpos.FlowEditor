@@ -1,76 +1,68 @@
-using System.Collections.Immutable;
+using FluentValidation;
 using NSubstitute;
 using WorkflowEditor.Application.Abstractions;
 using WorkflowEditor.Application.Common;
 using WorkflowEditor.Application.Workflows.Save;
-using WorkflowEditor.Core.Models;
-using static WorkflowEditor.Tests.Server.TestKit.WorkflowFactory;
+using WorkflowEditor.Tests.Server.TestKit;
 
 namespace WorkflowEditor.Tests.Server.Application;
 
 public class SaveWorkflowCommandHandlerTests
 {
-    private static readonly string ValidWorkflowId = Guid.NewGuid().ToString();
-
-    [Fact]
-    public async Task returns_Validation_when_workflowId_is_not_a_guid()
+    private static SaveWorkflowCommandHandler MakeHandler(out IWorkflowRepository repo)
     {
-        var repo = Substitute.For<IWorkflowRepository>();
-        var handler = new SaveWorkflowCommandHandler(repo, new SaveWorkflowValidator());
-        var doc = Document("not-a-guid", BaseStep("s-1"));
-
-        var result = await handler.HandleAsync(new SaveWorkflowCommand(doc), CancellationToken.None);
-
-        result.IsSuccess.Should().BeFalse();
-        result.Error!.Kind.Should().Be(ErrorKind.Validation);
-        await repo.DidNotReceive().UpsertAsync(Arg.Any<WorkflowDocument>(), Arg.Any<CancellationToken>());
+        repo = Substitute.For<IWorkflowRepository>();
+        var validator = new SaveWorkflowValidator();
+        return new SaveWorkflowCommandHandler(repo, validator);
     }
 
     [Fact]
-    public async Task returns_Validation_when_step_dictionary_key_does_not_match_step_id()
+    public async Task Persists_valid_document_via_repository_and_returns_it()
     {
-        var repo = Substitute.For<IWorkflowRepository>();
-        var handler = new SaveWorkflowCommandHandler(repo, new SaveWorkflowValidator());
-        var step = BaseStep("real-id");
-        var doc = new WorkflowDocument
-        {
-            WorkflowId = ValidWorkflowId,
-            Name = "test",
-            Steps = ImmutableDictionary<string, WorkflowStep>.Empty.SetItem("wrong-key", step)
-        };
-
-        var result = await handler.HandleAsync(new SaveWorkflowCommand(doc), CancellationToken.None);
-
-        result.IsSuccess.Should().BeFalse();
-        result.Error!.Kind.Should().Be(ErrorKind.Validation);
-        result.Error.Failures.Should().NotBeNull();
-    }
-
-    [Fact]
-    public async Task returns_Validation_when_link_references_unknown_step()
-    {
-        var repo = Substitute.For<IWorkflowRepository>();
-        var handler = new SaveWorkflowCommandHandler(repo, new SaveWorkflowValidator());
-        var doc = Document(ValidWorkflowId, BaseStep("s-1"))
-            .WithLinks(Link("l-1", "s-1", "ghost"));
-
-        var result = await handler.HandleAsync(new SaveWorkflowCommand(doc), CancellationToken.None);
-
-        result.IsSuccess.Should().BeFalse();
-        result.Error!.Kind.Should().Be(ErrorKind.Validation);
-    }
-
-    [Fact]
-    public async Task forwards_to_repository_when_document_is_valid()
-    {
-        var repo = Substitute.For<IWorkflowRepository>();
-        var handler = new SaveWorkflowCommandHandler(repo, new SaveWorkflowValidator());
-        var doc = Document(ValidWorkflowId, BaseStep("s-1"), BaseStep("s-2"))
-            .WithLinks(Link("l-1", "s-1", "s-2"));
+        var handler = MakeHandler(out var repo);
+        var doc = WorkflowFactory.Document("import", "Import flow", WorkflowFactory.Base("apply-import"));
 
         var result = await handler.HandleAsync(new SaveWorkflowCommand(doc), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
+        result.Value.Should().BeSameAs(doc);
         await repo.Received(1).UpsertAsync(doc, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Rejects_invalid_name()
+    {
+        var handler = MakeHandler(out _);
+        var doc = WorkflowFactory.Document("Bad Name!", steps: WorkflowFactory.Base("k"));
+
+        var result = await handler.HandleAsync(new SaveWorkflowCommand(doc), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Kind.Should().Be(ErrorKind.Validation);
+        result.Error.Failures.Should().ContainKey("Document.Name");
+    }
+
+    [Fact]
+    public async Task Rejects_BaseStep_with_empty_StepKind()
+    {
+        var handler = MakeHandler(out _);
+        var doc = WorkflowFactory.Document("import", steps: WorkflowFactory.Base(""));
+
+        var result = await handler.HandleAsync(new SaveWorkflowCommand(doc), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Kind.Should().Be(ErrorKind.Validation);
+    }
+
+    [Fact]
+    public async Task Rejects_SubflowStep_with_empty_SubflowName()
+    {
+        var handler = MakeHandler(out _);
+        var doc = WorkflowFactory.Document("import", steps: WorkflowFactory.Sub(""));
+
+        var result = await handler.HandleAsync(new SaveWorkflowCommand(doc), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Kind.Should().Be(ErrorKind.Validation);
     }
 }

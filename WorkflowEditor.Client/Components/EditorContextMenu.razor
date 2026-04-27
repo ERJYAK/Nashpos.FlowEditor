@@ -3,6 +3,7 @@
 @inject IState<EditorState> EditorState
 @inject IDispatcher Dispatcher
 
+@* Урезанное контекстное меню. Полный copy/paste/edit-flow вернётся на этапе E. *@
 @if (IsOpen)
 {
     <div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9998;"
@@ -12,16 +13,17 @@
     </div>
 
     <div style="position: fixed; top: @(Y)px; left: @(X)px; z-index: 9999;">
-        <MudPaper Elevation="8" Class="py-1" Style="min-width: 160px;">
-            @* Новые пункты меню для добавления узлов *@
-            <MudMenuItem OnClick="OnAddBaseStep" Disabled="@(EditorState.Value.ActiveDocumentId == null)">Добавить базовый шаг</MudMenuItem>
-            <MudMenuItem OnClick="OnAddSubflowStep" Disabled="@(EditorState.Value.ActiveDocumentId == null)">Добавить шаг subflow</MudMenuItem>
+        <MudPaper Elevation="8" Class="py-1" Style="min-width: 180px;">
+            <MudMenuItem OnClick="OnAddBaseStep" Disabled="@(EditorState.Value.ActiveDocumentName is null)">
+                Добавить базовый шаг
+            </MudMenuItem>
+            <MudMenuItem OnClick="OnAddSubflowStep" Disabled="@(EditorState.Value.ActiveDocumentName is null)">
+                Добавить шаг subflow
+            </MudMenuItem>
             <MudDivider />
-            <MudMenuItem OnClick="OnCopy" Disabled="@(!IsCopyable())">Копировать</MudMenuItem>
-            <MudMenuItem OnClick="OnPaste" Disabled="@(!IsPastable())">Вставить</MudMenuItem>
-            <MudMenuItem OnClick="OnEdit">Изменить</MudMenuItem>
-            @* Удалили случайный символ 'v' в конце *@
-            <MudMenuItem OnClick="OnDelete" Disabled="@(_selection.Count == 0)">Удалить</MudMenuItem>
+            <MudMenuItem OnClick="OnDelete" Disabled="@(_selection.Count == 0)">
+                Удалить выделенное
+            </MudMenuItem>
         </MudPaper>
     </div>
 }
@@ -30,8 +32,8 @@
     public bool IsOpen { get; private set; }
     public double X { get; private set; }
     public double Y { get; private set; }
-    private double _pasteCanvasX;
-    private double _pasteCanvasY;
+    private double _addAtX;
+    private double _addAtY;
     private IReadOnlyList<SelectableModel> _selection = Array.Empty<SelectableModel>();
 
     public void Open(double screenX, double screenY, IReadOnlyList<SelectableModel> selection,
@@ -39,8 +41,8 @@
     {
         X = screenX;
         Y = screenY;
-        _pasteCanvasX = canvasX;
-        _pasteCanvasY = canvasY;
+        _addAtX = canvasX;
+        _addAtY = canvasY;
         _selection = selection ?? Array.Empty<SelectableModel>();
         IsOpen = true;
         StateHasChanged();
@@ -53,84 +55,41 @@
         StateHasChanged();
     }
 
-    private bool IsCopyable()
-    {
-        return _selection.OfType<WorkflowNodeModel>().Any() ||
-               _selection.OfType<LinkModel>().Any();
-    }
-
-    private bool IsPastable()
-    {
-        return EditorState.Value.Clipboard != null;
-    }
-
-    // --- Новые обработчики для добавления шагов ---
-    
     private void OnAddBaseStep()
     {
-        var activeId = EditorState.Value.ActiveDocumentId;
-        if (activeId != null)
+        var name = EditorState.Value.ActiveDocumentName;
+        if (name is not null)
         {
-            var newStep = new BaseStep
-            {
-                Id = Guid.NewGuid().ToString(),
-                Name = "Новая задача",
-                Position = new CanvasPosition(_pasteCanvasX, _pasteCanvasY)
-            };
-            Dispatcher.Dispatch(new AddStepAction(activeId, newStep));
+            var step = new BaseStep { Id = Guid.NewGuid().ToString(), Description = "Новый шаг" };
+            Dispatcher.Dispatch(new AddStepAction(name, step, new CanvasPosition(_addAtX, _addAtY)));
         }
         CloseMenu();
     }
 
     private void OnAddSubflowStep()
     {
-        var activeId = EditorState.Value.ActiveDocumentId;
-        if (activeId != null)
+        var name = EditorState.Value.ActiveDocumentName;
+        if (name is not null)
         {
-            var newStep = new SubflowStep
-            {
-                Id = Guid.NewGuid().ToString(),
-                Name = "Новый подпроцесс",
-                Position = new CanvasPosition(_pasteCanvasX, _pasteCanvasY),
-                SubflowId = Guid.NewGuid().ToString() // Обязательная инициализация
-            };
-            Dispatcher.Dispatch(new AddStepAction(activeId, newStep));
+            var step = new SubflowStep { Id = Guid.NewGuid().ToString(), Description = "Новый подпроцесс" };
+            Dispatcher.Dispatch(new AddStepAction(name, step, new CanvasPosition(_addAtX, _addAtY)));
         }
-        CloseMenu();
-    }
-
-    // --- Существующие обработчики ---
-
-    private void OnCopy()
-    {
-        if (IsCopyable())
-        {
-            Dispatcher.Dispatch(new CopySelectionAction(_selection));
-        }
-        CloseMenu();
-    }
-
-    private void OnPaste()
-    {
-        if (IsPastable())
-        {
-            Dispatcher.Dispatch(new PasteClipboardAction(_pasteCanvasX, _pasteCanvasY));
-        }
-        CloseMenu();
-    }
-
-    private void OnEdit()
-    {
-        Console.WriteLine("[Контекстное меню] Выбрано: Изменить");
         CloseMenu();
     }
 
     private void OnDelete()
     {
-        if (_selection.Count > 0)
+        var name = EditorState.Value.ActiveDocumentName;
+        if (name is null || _selection.Count == 0)
         {
-            Dispatcher.Dispatch(new DeleteSelectionAction(_selection));
+            CloseMenu();
+            return;
         }
+
+        var stepIds = _selection.OfType<WorkflowNodeModel>().Select(n => n.StepId).ToList();
+        if (stepIds.Count > 0)
+            Dispatcher.Dispatch(new RemoveStepsAction(name, stepIds));
+
         CloseMenu();
     }
 }

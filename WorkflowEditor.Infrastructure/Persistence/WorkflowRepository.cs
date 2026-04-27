@@ -10,9 +10,9 @@ internal sealed class WorkflowRepository(AppDbContext db, TimeProvider clock) : 
 {
     private static readonly JsonSerializerOptions JsonOptions = JsonConfiguration.GetOptions();
 
-    public async Task<WorkflowDocument?> GetAsync(string workflowId, CancellationToken ct)
+    public async Task<WorkflowDocument?> GetAsync(string name, CancellationToken ct)
     {
-        var entity = await db.Workflows.AsNoTracking().FirstOrDefaultAsync(w => w.WorkflowId == workflowId, ct);
+        var entity = await db.Workflows.AsNoTracking().FirstOrDefaultAsync(w => w.Name == name, ct);
         return entity is null ? null : Deserialize(entity);
     }
 
@@ -21,13 +21,13 @@ internal sealed class WorkflowRepository(AppDbContext db, TimeProvider clock) : 
         return await db.Workflows
             .AsNoTracking()
             .OrderBy(w => w.Name)
-            .Select(w => new WorkflowSummary(w.WorkflowId, w.Name, w.CreatedAt, w.UpdatedAt))
+            .Select(w => new WorkflowSummary(w.Name, w.Description, w.UpdatedAt))
             .ToListAsync(ct);
     }
 
     public async Task UpsertAsync(WorkflowDocument document, CancellationToken ct)
     {
-        var existing = await db.Workflows.FirstOrDefaultAsync(w => w.WorkflowId == document.WorkflowId, ct);
+        var existing = await db.Workflows.FirstOrDefaultAsync(w => w.Name == document.Name, ct);
         var now = clock.GetUtcNow().UtcDateTime;
         var payload = JsonSerializer.Serialize(document, JsonOptions);
 
@@ -35,17 +35,16 @@ internal sealed class WorkflowRepository(AppDbContext db, TimeProvider clock) : 
         {
             db.Workflows.Add(new WorkflowEntity
             {
-                WorkflowId = document.WorkflowId,
                 Name = document.Name,
+                Description = document.Description,
                 PayloadJson = payload,
-                CreatedAt = document.CreatedAt == default ? now : document.CreatedAt,
                 UpdatedAt = now,
                 Version = 1
             });
         }
         else
         {
-            existing.Name = document.Name;
+            existing.Description = document.Description;
             existing.PayloadJson = payload;
             existing.UpdatedAt = now;
             existing.Version += 1;
@@ -54,9 +53,9 @@ internal sealed class WorkflowRepository(AppDbContext db, TimeProvider clock) : 
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<bool> DeleteAsync(string workflowId, CancellationToken ct)
+    public async Task<bool> DeleteAsync(string name, CancellationToken ct)
     {
-        var entity = await db.Workflows.FirstOrDefaultAsync(w => w.WorkflowId == workflowId, ct);
+        var entity = await db.Workflows.FirstOrDefaultAsync(w => w.Name == name, ct);
         if (entity is null) return false;
 
         db.Workflows.Remove(entity);
@@ -67,7 +66,8 @@ internal sealed class WorkflowRepository(AppDbContext db, TimeProvider clock) : 
     private static WorkflowDocument Deserialize(WorkflowEntity entity)
     {
         var doc = JsonSerializer.Deserialize<WorkflowDocument>(entity.PayloadJson, JsonOptions);
-        return doc ?? throw new InvalidOperationException(
-            $"failed to deserialize workflow '{entity.WorkflowId}'");
+        return doc is null
+            ? throw new InvalidOperationException($"failed to deserialize workflow '{entity.Name}'")
+            : doc with { Name = entity.Name };
     }
 }

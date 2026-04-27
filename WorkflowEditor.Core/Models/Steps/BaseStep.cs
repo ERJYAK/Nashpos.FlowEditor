@@ -1,10 +1,17 @@
 namespace WorkflowEditor.Core.Models.Steps;
 
-public record BaseStep : WorkflowStep
+// Базовый шаг — соответствует `{ "step": "<kind>" }` в JSON-формате.
+// `StepKind` — имя зарегистрированного на стороне исполнителя обработчика
+// (например, `download-package`, `transform-xml`).
+public sealed record BaseStep : WorkflowStep
 {
-    public override WorkflowStep WithName(string name) => this with { Name = name };
+    public string StepKind { get; init; } = string.Empty;
 
-    public override WorkflowStep WithPosition(CanvasPosition position) => this with { Position = position };
+    public BaseStep WithStepKind(string stepKind) => this with { StepKind = stepKind };
 
-    public override WorkflowStep CloneWithId(string newId) => this with { Id = newId };
+    public override WorkflowStep WithDescription(string description) =>
+        this with { Description = description };
+
+    public override WorkflowStep CloneAsNew() =>
+        this with { Id = Guid.NewGuid().ToString() };
 }

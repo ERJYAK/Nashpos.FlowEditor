@@ -5,7 +5,7 @@ using WorkflowEditor.Core.Serialization;
 
 namespace WorkflowEditor.Application.Workflows.Import;
 
-public sealed record ImportWorkflowJsonCommand(string Payload);
+public sealed record ImportWorkflowJsonCommand(string Name, string Payload);
 
 public interface IImportWorkflowJsonCommandHandler
 {
@@ -19,6 +19,10 @@ public sealed class ImportWorkflowJsonCommandHandler(IWorkflowDocumentJsonMigrat
 
     public Result<WorkflowDocument> Handle(ImportWorkflowJsonCommand command)
     {
+        if (string.IsNullOrWhiteSpace(command.Name))
+            return Error.Validation("name is empty",
+                new Dictionary<string, string[]> { ["name"] = ["required"] });
+
         if (string.IsNullOrWhiteSpace(command.Payload))
             return Error.Validation("payload is empty",
                 new Dictionary<string, string[]> { ["payload"] = ["required"] });
@@ -36,11 +40,12 @@ public sealed class ImportWorkflowJsonCommandHandler(IWorkflowDocumentJsonMigrat
 
         try
         {
-            var document = JsonSerializer.Deserialize<WorkflowDocument>(migrated, JsonOptions);
-            return document is null
-                ? Error.Validation("payload deserialized to null",
-                    new Dictionary<string, string[]> { ["payload"] = ["empty document"] })
-                : Result<WorkflowDocument>.Success(document);
+            var parsed = JsonSerializer.Deserialize<WorkflowDocument>(migrated, JsonOptions);
+            if (parsed is null)
+                return Error.Validation("payload deserialized to null",
+                    new Dictionary<string, string[]> { ["payload"] = ["empty document"] });
+
+            return Result<WorkflowDocument>.Success(parsed with { Name = command.Name });
         }
         catch (JsonException ex)
         {

@@ -14,12 +14,12 @@ public sealed class GrpcWorkflowApi : IWorkflowApi
         _client = client;
     }
 
-    public async Task<ApiResult<WorkflowDocument>> GetAsync(string workflowId, CancellationToken cancellationToken = default)
+    public async Task<ApiResult<WorkflowDocument>> GetAsync(string name, CancellationToken cancellationToken = default)
     {
         try
         {
             var response = await _client.GetWorkflowAsync(
-                new GetWorkflowRequest { WorkflowId = workflowId },
+                new GetWorkflowRequest { Name = name },
                 cancellationToken: cancellationToken);
 
             if (response.Document is null)

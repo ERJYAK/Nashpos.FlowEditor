@@ -1,44 +1,36 @@
 using WorkflowEditor.Client.Store.Editor;
-using static WorkflowEditor.Tests.Client.TestKit.EditorTestData;
+using WorkflowEditor.Tests.Client.TestKit;
 
 namespace WorkflowEditor.Tests.Client.Store.Editor;
 
 public class LinkReducerTests
 {
     [Fact]
-    public void AddLink_appends_to_links()
+    public void AddLink_records_new_link_and_marks_dirty()
     {
-        var doc = Document("wf-1", BaseStep("s-1"), BaseStep("s-2"));
-        var state = StateWith(doc);
-        var link = Link("l-1", "s-1", "s-2");
+        var state = EditorReducers.ReduceOpenWorkflowAction(new EditorState(),
+            new OpenWorkflowAction(EditorTestData.Document("import")));
 
-        var next = EditorReducers.ReduceAddLinkAction(state, new AddLinkAction("wf-1", link));
+        var link = new EditorLink { Id = "l1", SourceStepId = "a", TargetStepId = "b" };
+        state = EditorReducers.ReduceAddLinkAction(state, new AddLinkAction("import", link));
 
-        next.OpenDocuments["wf-1"].Links.Should().ContainSingle().Which.Key.Should().Be("l-1");
+        state.OpenDocuments["import"].Links["l1"].Should().BeSameAs(link);
+        state.IsDirty("import").Should().BeTrue();
     }
 
     [Fact]
-    public void AddLink_is_idempotent_for_same_id()
+    public void RemoveLinks_drops_specified_links()
     {
-        var doc = Document("wf-1", BaseStep("s-1"), BaseStep("s-2"))
-            .WithLinks(Link("l-1", "s-1", "s-2"));
-        var state = StateWith(doc);
+        var state = EditorReducers.ReduceOpenWorkflowAction(new EditorState(),
+            new OpenWorkflowAction(EditorTestData.Document("import")));
 
-        var next = EditorReducers.ReduceAddLinkAction(state,
-            new AddLinkAction("wf-1", Link("l-1", "s-1", "s-2")));
+        var l1 = new EditorLink { Id = "l1", SourceStepId = "a", TargetStepId = "b" };
+        var l2 = new EditorLink { Id = "l2", SourceStepId = "b", TargetStepId = "c" };
+        state = EditorReducers.ReduceAddLinkAction(state, new AddLinkAction("import", l1));
+        state = EditorReducers.ReduceAddLinkAction(state, new AddLinkAction("import", l2));
 
-        next.OpenDocuments["wf-1"].Links.Should().ContainSingle();
-    }
+        state = EditorReducers.ReduceRemoveLinksAction(state, new RemoveLinksAction("import", ["l1"]));
 
-    [Fact]
-    public void RemoveLink_drops_only_target_link()
-    {
-        var doc = Document("wf-1", BaseStep("s-1"), BaseStep("s-2"))
-            .WithLinks(Link("l-1", "s-1", "s-2"), Link("l-2", "s-2", "s-1"));
-        var state = StateWith(doc);
-
-        var next = EditorReducers.ReduceRemoveLinkAction(state, new RemoveLinkAction("wf-1", "l-1"));
-
-        next.OpenDocuments["wf-1"].Links.Should().ContainSingle().Which.Key.Should().Be("l-2");
+        state.OpenDocuments["import"].Links.Keys.Should().BeEquivalentTo(["l2"]);
     }
 }

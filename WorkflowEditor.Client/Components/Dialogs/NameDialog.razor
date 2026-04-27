@@ -1,0 +1,61 @@
+@* Универсальный диалог для ввода имени с regex-валидацией.
+   Используется для «Создать процесс» и «Имя подпроцесса». *@
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField @bind-Value="_value"
+                      Label="@Label"
+                      Variant="Variant.Outlined"
+                      AutoFocus="true"
+                      Immediate="true"
+                      Validation="@((string s) => Validate(s))"
+                      OnKeyUp="OnKeyUp"
+                      HelperText="@HelperText" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Отмена</MudButton>
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   Disabled="@(!IsValid)"
+                   OnClick="Submit">@SubmitLabel</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+
+    [Parameter] public string Title { get; set; } = "Введите имя";
+    [Parameter] public string Label { get; set; } = "Имя";
+    [Parameter] public string SubmitLabel { get; set; } = "Создать";
+    [Parameter] public string HelperText { get; set; } =
+        "Только латиница, цифры и дефис. Начало — буква или цифра.";
+    [Parameter] public Func<string, string?>? AdditionalValidator { get; set; }
+
+    private static readonly System.Text.RegularExpressions.Regex NameRegex =
+        new(@"^[a-z0-9][a-z0-9-]*$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private string _value = string.Empty;
+
+    private bool IsValid => Validate(_value) is null;
+
+    private string? Validate(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "Имя обязательно";
+        if (s.Length > 64) return "Не больше 64 символов";
+        if (!NameRegex.IsMatch(s))
+            return "Допустимы только латиница, цифры и дефис";
+        return AdditionalValidator?.Invoke(s);
+    }
+
+    private void Cancel() => Dialog.Cancel();
+
+    private void Submit()
+    {
+        if (IsValid) Dialog.Close(DialogResult.Ok(_value.Trim()));
+    }
+
+    private void OnKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && IsValid) Submit();
+    }
+}

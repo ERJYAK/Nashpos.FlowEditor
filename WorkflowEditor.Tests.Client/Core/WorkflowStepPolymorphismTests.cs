@@ -1,86 +1,83 @@
 using WorkflowEditor.Core.Models;
 using WorkflowEditor.Core.Models.Steps;
-using static WorkflowEditor.Tests.Client.TestKit.EditorTestData;
 
 namespace WorkflowEditor.Tests.Client.Core;
 
 public class WorkflowStepPolymorphismTests
 {
     [Fact]
-    public void WithName_on_BaseStep_returns_BaseStep_with_new_name()
+    public void WithDescription_on_BaseStep_keeps_kind_and_id()
     {
-        var step = BaseStep("s-1", "old", x: 5, y: 6);
+        var step = new BaseStep { Id = "s-1", StepKind = "download-package", Description = "old" };
 
-        var renamed = step.WithName("new");
+        var updated = step.WithDescription("new");
 
-        renamed.Should().BeOfType<BaseStep>();
-        renamed.Name.Should().Be("new");
-        renamed.Id.Should().Be("s-1");
-        renamed.Position.Should().Be(new CanvasPosition(5, 6));
+        updated.Should().BeOfType<BaseStep>();
+        updated.Description.Should().Be("new");
+        updated.Id.Should().Be("s-1");
+        ((BaseStep)updated).StepKind.Should().Be("download-package");
     }
 
     [Fact]
-    public void WithName_on_SubflowStep_preserves_subflowId()
+    public void WithDescription_on_SubflowStep_preserves_subflow_name()
     {
-        var step = SubflowStep("s-1", "old", subflowId: "sub-42", x: 1, y: 2);
+        var step = new SubflowStep { Id = "s-1", SubflowName = "prepare-import", Description = "old" };
 
-        var renamed = step.WithName("new");
+        var updated = step.WithDescription("new");
 
-        var sub = renamed.Should().BeOfType<SubflowStep>().Subject;
-        sub.Name.Should().Be("new");
-        sub.SubflowId.Should().Be("sub-42");
-        sub.Position.Should().Be(new CanvasPosition(1, 2));
+        var sub = updated.Should().BeOfType<SubflowStep>().Subject;
+        sub.Description.Should().Be("new");
+        sub.SubflowName.Should().Be("prepare-import");
+        sub.Id.Should().Be("s-1");
     }
 
     [Fact]
-    public void WithPosition_on_BaseStep_keeps_name_and_id()
+    public void CloneAsNew_on_BaseStep_changes_only_id()
     {
-        var step = BaseStep("s-1", "task", x: 0, y: 0);
+        var step = new BaseStep { Id = "orig", StepKind = "process-table", Description = "d" };
 
-        var moved = step.WithPosition(new CanvasPosition(10, 20));
-
-        moved.Should().BeOfType<BaseStep>();
-        moved.Position.Should().Be(new CanvasPosition(10, 20));
-        moved.Id.Should().Be("s-1");
-        moved.Name.Should().Be("task");
-    }
-
-    [Fact]
-    public void WithPosition_on_SubflowStep_preserves_subflowId()
-    {
-        var step = SubflowStep("s-1", "sub", subflowId: "sub-1");
-
-        var moved = step.WithPosition(new CanvasPosition(7, 8));
-
-        var sub = moved.Should().BeOfType<SubflowStep>().Subject;
-        sub.SubflowId.Should().Be("sub-1");
-        sub.Position.Should().Be(new CanvasPosition(7, 8));
-    }
-
-    [Fact]
-    public void CloneWithId_on_BaseStep_changes_only_id()
-    {
-        var step = BaseStep("orig", "task", x: 5, y: 6);
-
-        var cloned = step.CloneWithId("new-id");
+        var cloned = step.CloneAsNew();
 
         cloned.Should().BeOfType<BaseStep>();
-        cloned.Id.Should().Be("new-id");
-        cloned.Name.Should().Be("task");
-        cloned.Position.Should().Be(new CanvasPosition(5, 6));
+        cloned.Id.Should().NotBe("orig").And.NotBeEmpty();
+        cloned.Description.Should().Be("d");
+        ((BaseStep)cloned).StepKind.Should().Be("process-table");
     }
 
     [Fact]
-    public void CloneWithId_on_SubflowStep_preserves_subflowId()
+    public void CloneAsNew_on_SubflowStep_preserves_subflow_name_and_description()
     {
-        var step = SubflowStep("orig", "sub", subflowId: "sub-7", x: 1, y: 1);
+        var step = new SubflowStep { Id = "orig", SubflowName = "iterate-tenants", Description = "d" };
 
-        var cloned = step.CloneWithId("new-id");
+        var cloned = step.CloneAsNew();
 
         var sub = cloned.Should().BeOfType<SubflowStep>().Subject;
-        sub.Id.Should().Be("new-id");
-        sub.Name.Should().Be("sub");
-        sub.SubflowId.Should().Be("sub-7");
-        sub.Position.Should().Be(new CanvasPosition(1, 1));
+        sub.Id.Should().NotBe("orig").And.NotBeEmpty();
+        sub.SubflowName.Should().Be("iterate-tenants");
+        sub.Description.Should().Be("d");
+    }
+
+    [Fact]
+    public void WithStepKind_returns_new_BaseStep_with_updated_kind()
+    {
+        var step = new BaseStep { Id = "s", StepKind = "old", Description = "d" };
+
+        var updated = step.WithStepKind("new-kind");
+
+        updated.StepKind.Should().Be("new-kind");
+        updated.Description.Should().Be("d");
+        updated.Id.Should().Be("s");
+    }
+
+    [Fact]
+    public void WithSubflowName_returns_new_SubflowStep_with_updated_name()
+    {
+        var step = new SubflowStep { Id = "s", SubflowName = "old", Description = "d" };
+
+        var updated = step.WithSubflowName("new-name");
+
+        updated.SubflowName.Should().Be("new-name");
+        updated.Description.Should().Be("d");
+        updated.Id.Should().Be("s");
     }
 }

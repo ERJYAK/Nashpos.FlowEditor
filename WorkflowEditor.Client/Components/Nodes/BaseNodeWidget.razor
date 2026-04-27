@@ -1,97 +1,38 @@
+@inherits FluxorComponent
+@* Базовый узел: показываем `StepKind` (тип реализации) и `Description`.
+   Полноценное редактирование выйдет на этапе E (через PropertiesPanel). *@
+
 <MudPaper Elevation="4"
-          Class="@(Node.Selected ? "pa-4 selected-node" : "pa-4")"
-          Style="min-width: 200px; cursor: pointer; position: relative; overflow: visible;"
-          @ondblclick="StartEditing"
-          @onclick:stopPropagation="true">
-
-    <MudStack Spacing="1" AlignItems="AlignItems.Center">
-        <MudIcon Icon="@Icons.Material.Filled.Settings" Color="Color.Success" Size="Size.Small"/>
-
-        @if (State.Value.EditingStepId == Node.StepId)
-        {
-            <div @onkeydown:stopPropagation="true"
-                 @onkeyup:stopPropagation="true"
-                 @onpointerdown:stopPropagation="true"
-                 @onpointermove:stopPropagation="true"
-                 @onpointerup:stopPropagation="true"
-                 @onmousedown:stopPropagation="true"
-                 @onmousemove:stopPropagation="true">
-
-                <MudTextField @bind-Value="_editingName"
-                              Immediate="true"
-                              AutoFocus="true"
-                              Margin="Margin.Dense"
-                              OnKeyDown="HandleKeyDown"
-                              OnBlur="SaveAndStopEditing" />
-            </div>
-        }
-        else
-        {
-            <MudText Typo="Typo.body2">@CurrentName</MudText>
-        }
+          Class="@(Node.Selected ? "pa-3 selected-node" : "pa-3")"
+          Style="min-width: 220px; cursor: pointer; position: relative; overflow: visible;">
+    <MudStack Spacing="0">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.Settings" Color="Color.Success" Size="Size.Small" />
+            <MudText Typo="Typo.subtitle2">@(string.IsNullOrEmpty(Node.StepKind) ? "—" : Node.StepKind)</MudText>
+        </MudStack>
+        <MudText Typo="Typo.caption" Color="Color.Default">@Description</MudText>
     </MudStack>
 
     @foreach (var port in Node.Ports)
     {
-        <PortRenderer Port="port"/>
+        <PortRenderer Port="port" />
     }
 </MudPaper>
 
 @code {
     [Parameter] public BaseNodeModel Node { get; set; } = null!;
     [Inject] private IState<EditorState> State { get; set; } = null!;
-    [Inject] private IDispatcher Dispatcher { get; set; } = null!;
 
-    private string _editingName = string.Empty;
-
-    private string CurrentName
+    private string Description
     {
         get
         {
-            if (State.Value.ActiveDocumentId != null &&
-                State.Value.OpenDocuments.TryGetValue(State.Value.ActiveDocumentId, out var doc) &&
-                doc.Steps.TryGetValue(Node.StepId, out var step))
-            {
-                return step.Name;
-            }
+            var name = State.Value.ActiveDocumentName;
+            if (name is null || !State.Value.OpenDocuments.TryGetValue(name, out var editor))
+                return Node.Title ?? string.Empty;
 
-            return Node.Title;
+            var step = editor.Document.Steps.FirstOrDefault(s => s.Id == Node.StepId);
+            return step?.Description ?? Node.Title ?? string.Empty;
         }
     }
-
-    private void StartEditing()
-    {
-        _editingName = CurrentName;
-        Dispatcher.Dispatch(new StartEditingStepAction(Node.StepId));
-    }
-
-    private void HandleKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter")
-        {
-            SaveAndStopEditing();
-        }
-        else if (e.Key == "Escape")
-        {
-            CancelEditing();
-        }
-    }
-
-    private void CancelEditing()
-    {
-        Dispatcher.Dispatch(new StopEditingStepAction());
-    }
-
-    private void SaveAndStopEditing()
-    {
-        var activeWorkflowId = State.Value.ActiveDocumentId;
-
-        if (!string.IsNullOrWhiteSpace(_editingName) && activeWorkflowId != null)
-        {
-            Dispatcher.Dispatch(new RenameStepAction(activeWorkflowId, Node.StepId, _editingName));
-        }
-
-        Dispatcher.Dispatch(new StopEditingStepAction());
-    }
-
 }

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Components.Web;
 using MudBlazor.Services;
 using WorkflowEditor.Client;
 using WorkflowEditor.Client.Services.Api;
+using WorkflowEditor.Client.Services.Files;
 using WorkflowEditor.Contracts.Grpc;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -27,6 +28,7 @@ builder.Services.AddGrpcClient<WorkflowStorage.WorkflowStorageClient>(o =>
     .ConfigurePrimaryHttpMessageHandler(() => new GrpcWebHandler(GrpcWebMode.GrpcWeb, new HttpClientHandler()));
 
 builder.Services.AddScoped<IWorkflowApi, GrpcWorkflowApi>();
+builder.Services.AddScoped<IFileDownloader, BrowserFileDownloader>();
 builder.Services.AddMudServices();
 
 // Регистрация стейт-менеджера Fluxor

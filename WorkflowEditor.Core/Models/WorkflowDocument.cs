@@ -1,27 +1,22 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
-using WorkflowEditor.Core.Serialization;
 
 namespace WorkflowEditor.Core.Models;
 
-public record WorkflowDocument
+// Бизнес-документ workflow. Соответствует JSON-файлу:
+//   { "description": "...", "steps": [ { "step"|"subflow": "...", ... }, ... ] }
+//
+// `Name` — имя процесса = имя файла (без расширения) = первичный ключ хранения.
+// В JSON-формате `Name` НЕ хранится: он определяется именем файла или диалогом «Создать процесс».
+// На уровне доменной модели и API это имя — обязательно.
+public sealed record WorkflowDocument
 {
-    [JsonPropertyName("workflowId")]
-    public string WorkflowId { get; init; } = Guid.NewGuid().ToString();
-
-    [JsonPropertyName("name")]
+    [JsonIgnore]
     public string Name { get; init; } = string.Empty;
 
+    [JsonPropertyName("description")]
+    public string Description { get; init; } = string.Empty;
+
     [JsonPropertyName("steps")]
-    [JsonConverter(typeof(WorkflowStepDictionaryConverter))]
-    public ImmutableDictionary<string, WorkflowStep> Steps { get; init; } =
-        ImmutableDictionary<string, WorkflowStep>.Empty;
-
-    [JsonPropertyName("links")]
-    [JsonConverter(typeof(WorkflowLinkDictionaryConverter))]
-    public ImmutableDictionary<string, WorkflowLink> Links { get; init; } =
-        ImmutableDictionary<string, WorkflowLink>.Empty;
-
-    [JsonPropertyName("createdAt")]
-    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public ImmutableList<WorkflowStep> Steps { get; init; } = ImmutableList<WorkflowStep>.Empty;
 }

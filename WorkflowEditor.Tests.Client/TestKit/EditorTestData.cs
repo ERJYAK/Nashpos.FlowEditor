@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using WorkflowEditor.Client.Store.Editor;
 using WorkflowEditor.Core.Models;
 using WorkflowEditor.Core.Models.Steps;
 
@@ -7,41 +6,27 @@ namespace WorkflowEditor.Tests.Client.TestKit;
 
 internal static class EditorTestData
 {
-    public static BaseStep BaseStep(string id, string name = "task", double x = 0, double y = 0) =>
-        new() { Id = id, Name = name, Position = new CanvasPosition(x, y) };
-
-    public static SubflowStep SubflowStep(string id, string name = "subflow", string subflowId = "sub-1",
-        double x = 0, double y = 0) =>
-        new() { Id = id, Name = name, SubflowId = subflowId, Position = new CanvasPosition(x, y) };
-
-    public static WorkflowLink Link(string id, string sourceStep, string targetStep,
-        string sourcePort = "Right", string targetPort = "Left") =>
+    public static BaseStep Base(string stepKind = "task", string description = "", string? id = null) =>
         new()
         {
-            Id = id,
-            SourceNodeId = sourceStep,
-            SourcePortId = sourcePort,
-            TargetNodeId = targetStep,
-            TargetPortId = targetPort
+            Id = id ?? Guid.NewGuid().ToString(),
+            StepKind = stepKind,
+            Description = description
         };
 
-    public static WorkflowDocument Document(string id, params WorkflowStep[] steps) =>
+    public static SubflowStep Sub(string subflowName = "sub-1", string description = "", string? id = null) =>
         new()
         {
-            WorkflowId = id,
-            Name = "doc",
-            Steps = steps.ToImmutableDictionary(s => s.Id),
-            Links = ImmutableDictionary<string, WorkflowLink>.Empty
+            Id = id ?? Guid.NewGuid().ToString(),
+            SubflowName = subflowName,
+            Description = description
         };
 
-    public static WorkflowDocument WithLinks(this WorkflowDocument doc, params WorkflowLink[] links) =>
-        doc with { Links = links.ToImmutableDictionary(l => l.Id) };
-
-    public static EditorState StateWith(WorkflowDocument document, string? activeId = null) =>
-        new EditorState() with
+    public static WorkflowDocument Document(string name, string description = "", params WorkflowStep[] steps) =>
+        new()
         {
-            OpenDocuments = ImmutableDictionary<string, WorkflowDocument>.Empty
-                .SetItem(document.WorkflowId, document),
-            ActiveDocumentId = activeId ?? document.WorkflowId
+            Name = name,
+            Description = description,
+            Steps = steps.ToImmutableList()
         };
 }

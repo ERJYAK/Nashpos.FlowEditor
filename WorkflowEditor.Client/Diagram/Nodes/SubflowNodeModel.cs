@@ -1,16 +1,17 @@
-namespace WorkflowEditor.Client.Diagram.Nodes;
-
+using Blazor.Diagrams.Core.Models;
+using WorkflowEditor.Core.Models;
 using WorkflowEditor.Core.Models.Steps;
 
-public class SubflowNodeModel : WorkflowNodeModel
-{
-    public string SubflowId { get; }
+namespace WorkflowEditor.Client.Diagram.Nodes;
 
-    public SubflowNodeModel(SubflowStep step) : base(step)
+public sealed class SubflowNodeModel : WorkflowNodeModel
+{
+    public string SubflowName { get; }
+
+    public SubflowNodeModel(SubflowStep step, CanvasPosition position) : base(step, position)
     {
-        SubflowId = step.SubflowId;
-        // Добавляем порты: один вход слева, один выход справа
-        AddPort(Blazor.Diagrams.Core.Models.PortAlignment.Left);
-        AddPort(Blazor.Diagrams.Core.Models.PortAlignment.Right);
+        SubflowName = step.SubflowName;
+        AddPort(PortAlignment.Left);
+        AddPort(PortAlignment.Right);
     }
 }

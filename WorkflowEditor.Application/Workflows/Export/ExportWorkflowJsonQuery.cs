@@ -5,7 +5,7 @@ using WorkflowEditor.Core.Serialization;
 
 namespace WorkflowEditor.Application.Workflows.Export;
 
-public sealed record ExportWorkflowJsonQuery(string WorkflowId);
+public sealed record ExportWorkflowJsonQuery(string Name);
 
 public interface IExportWorkflowJsonQueryHandler
 {
@@ -19,13 +19,13 @@ public sealed class ExportWorkflowJsonQueryHandler(IWorkflowRepository repositor
 
     public async Task<Result<string>> HandleAsync(ExportWorkflowJsonQuery query, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(query.WorkflowId))
-            return Error.Validation("workflowId is required",
-                new Dictionary<string, string[]> { ["workflowId"] = ["required"] });
+        if (string.IsNullOrWhiteSpace(query.Name))
+            return Error.Validation("name is required",
+                new Dictionary<string, string[]> { ["name"] = ["required"] });
 
-        var document = await repository.GetAsync(query.WorkflowId, ct);
+        var document = await repository.GetAsync(query.Name, ct);
         if (document is null)
-            return Error.NotFound($"workflow '{query.WorkflowId}' not found");
+            return Error.NotFound($"workflow '{query.Name}' not found");
 
         return Result<string>.Success(JsonSerializer.Serialize(document, JsonOptions));
     }

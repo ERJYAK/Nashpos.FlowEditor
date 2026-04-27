@@ -4,22 +4,20 @@ using WorkflowEditor.Core.Models;
 
 namespace WorkflowEditor.Client.Diagram.Nodes;
 
-// Этот класс живет только на клиенте. Он хранит ID шага из Fluxor.
+// Узел диаграммы, привязанный к шагу из EditorState по `StepId`.
+// Позиция приходит снаружи (из `EditorDocument.NodePositions`), так как сами шаги
+// её не хранят — это UI-only слой.
 public abstract class WorkflowNodeModel : NodeModel
 {
     public string StepId { get; }
-
-    // Последняя позиция, в которой узел был синхронизирован из state-store.
-    // Используется, чтобы отличить «не двигался» от «передвинут пользователем»
-    // — без хардкода (0,0) и без обращения к state.Steps по StepId.
     public CanvasPosition LastSyncedPosition { get; private set; }
 
-    protected WorkflowNodeModel(WorkflowStep step)
-        : base(new Point(step.Position.X, step.Position.Y))
+    protected WorkflowNodeModel(WorkflowStep step, CanvasPosition position)
+        : base(new Point(position.X, position.Y))
     {
         StepId = step.Id;
-        Title = step.Name;
-        LastSyncedPosition = step.Position;
+        Title = step.Description;
+        LastSyncedPosition = position;
     }
 
     public void MarkSynced(CanvasPosition position)

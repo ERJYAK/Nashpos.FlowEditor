@@ -27,6 +27,12 @@
     </ItemGroup>
 
     <ItemGroup>
+        <Content Include="..\WorkflowEditor.Tests.Server\TestFlows\*.json"
+                 CopyToOutputDirectory="PreserveNewest"
+                 Link="TestFlows\%(Filename)%(Extension)" />
+    </ItemGroup>
+
+    <ItemGroup>
         <Using Include="Xunit" />
         <Using Include="FluentAssertions" />
     </ItemGroup>

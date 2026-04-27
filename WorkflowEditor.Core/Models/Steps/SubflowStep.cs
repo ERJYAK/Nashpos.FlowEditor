@@ -1,19 +1,17 @@
-using System.Text.Json.Serialization;
-
 namespace WorkflowEditor.Core.Models.Steps;
 
-// Узел-ссылка на другой холст (твой кастомный subflow)
-public record SubflowStep : WorkflowStep
+// Шаг-ссылка на другой workflow — соответствует `{ "subflow": "<name>" }` в JSON-формате.
+// `SubflowName` — имя другого процесса (= имя файла = ключ хранения), которое разрешается
+// при выполнении и при отображении в редакторе.
+public sealed record SubflowStep : WorkflowStep
 {
-    [JsonPropertyName("subflowId")]
-    public string SubflowId { get; init; } = string.Empty;
+    public string SubflowName { get; init; } = string.Empty;
 
-    // В UI при двойном клике по этому узлу, мы будем брать SubflowId
-    // и открывать новую вкладку, запрашивая по gRPC нужный документ.
+    public SubflowStep WithSubflowName(string subflowName) => this with { SubflowName = subflowName };
 
-    public override WorkflowStep WithName(string name) => this with { Name = name };
+    public override WorkflowStep WithDescription(string description) =>
+        this with { Description = description };
 
-    public override WorkflowStep WithPosition(CanvasPosition position) => this with { Position = position };
-
-    public override WorkflowStep CloneWithId(string newId) => this with { Id = newId };
+    public override WorkflowStep CloneAsNew() =>
+        this with { Id = Guid.NewGuid().ToString() };
 }

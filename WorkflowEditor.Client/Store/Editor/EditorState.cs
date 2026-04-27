@@ -5,48 +5,60 @@ using WorkflowEditor.Core.Models;
 namespace WorkflowEditor.Client.Store.Editor;
 
 [FeatureState]
-public record EditorState
+public sealed record EditorState
 {
     public bool IsLoading { get; init; }
 
-    public ImmutableDictionary<string, WorkflowDocument> OpenDocuments { get; init; }
+    // Открытые в редакторе документы. Ключ — Name (он же ключ хранения и таргет subflow).
+    public ImmutableDictionary<string, EditorDocument> OpenDocuments { get; init; } =
+        ImmutableDictionary<string, EditorDocument>.Empty;
 
-    public string? ActiveDocumentId { get; init; }
+    public string? ActiveDocumentName { get; init; }
 
     public string? EditingStepId { get; init; }
 
-    public ClipboardPayload? Clipboard { get; init; }
+    // Кэш чужих процессов — для отображения вложенных шагов в SubflowNodeWidget.
+    public ImmutableDictionary<string, WorkflowDocument> SubflowCache { get; init; } =
+        ImmutableDictionary<string, WorkflowDocument>.Empty;
 
-    // Документы с несохранёнными правками
-    public ImmutableHashSet<string> DirtyDocuments { get; init; }
+    // Имена subflow, которые сейчас грузятся, — антишторм против повторных fetch-ей.
+    public ImmutableHashSet<string> LoadingSubflows { get; init; } =
+        ImmutableHashSet<string>.Empty;
 
-    // Undo/Redo: для каждой вкладки храним стек предыдущих/последующих версий документа
-    public ImmutableDictionary<string, ImmutableStack<WorkflowDocument>> UndoStacks { get; init; }
+    public ImmutableHashSet<string> DirtyDocuments { get; init; } =
+        ImmutableHashSet<string>.Empty;
 
-    public ImmutableDictionary<string, ImmutableStack<WorkflowDocument>> RedoStacks { get; init; }
+    public ImmutableDictionary<string, ImmutableStack<EditorDocument>> UndoStacks { get; init; } =
+        ImmutableDictionary<string, ImmutableStack<EditorDocument>>.Empty;
 
-    public EditorState()
-    {
-        IsLoading = false;
-        OpenDocuments = ImmutableDictionary<string, WorkflowDocument>.Empty;
-        ActiveDocumentId = null;
-        EditingStepId = null;
-        Clipboard = null;
-        DirtyDocuments = ImmutableHashSet<string>.Empty;
-        UndoStacks = ImmutableDictionary<string, ImmutableStack<WorkflowDocument>>.Empty;
-        RedoStacks = ImmutableDictionary<string, ImmutableStack<WorkflowDocument>>.Empty;
-    }
+    public ImmutableDictionary<string, ImmutableStack<EditorDocument>> RedoStacks { get; init; } =
+        ImmutableDictionary<string, ImmutableStack<EditorDocument>>.Empty;
 
-    public bool IsDirty(string workflowId) => DirtyDocuments.Contains(workflowId);
+    public bool IsDirty(string name) => DirtyDocuments.Contains(name);
 
-    public bool CanUndo(string workflowId) =>
-        UndoStacks.TryGetValue(workflowId, out var stack) && !stack.IsEmpty;
+    public bool CanUndo(string name) =>
+        UndoStacks.TryGetValue(name, out var stack) && !stack.IsEmpty;
 
-    public bool CanRedo(string workflowId) =>
-        RedoStacks.TryGetValue(workflowId, out var stack) && !stack.IsEmpty;
+    public bool CanRedo(string name) =>
+        RedoStacks.TryGetValue(name, out var stack) && !stack.IsEmpty;
 }
 
-public record ClipboardPayload(
-    IReadOnlyList<WorkflowStep> Steps,
-    IReadOnlyList<WorkflowLink> Links,
-    CanvasPosition Origin);
+// Открытый в редакторе документ: бизнес-данные + UI-only слой (визуальные связи + позиции узлов).
+// Ни Links, ни NodePositions не уезжают на сервер — это разметка холста, существующая только
+// в браузерной сессии. Сервер видит только `Document.Steps` (порядок = семантика).
+public sealed record EditorDocument
+{
+    public required WorkflowDocument Document { get; init; }
+    public ImmutableDictionary<string, EditorLink> Links { get; init; } =
+        ImmutableDictionary<string, EditorLink>.Empty;
+    public ImmutableDictionary<string, CanvasPosition> NodePositions { get; init; } =
+        ImmutableDictionary<string, CanvasPosition>.Empty;
+}
+
+// Связь между двумя узлами на холсте. Ориентированная: source → target.
+public sealed record EditorLink
+{
+    public required string Id { get; init; }
+    public required string SourceStepId { get; init; }
+    public required string TargetStepId { get; init; }
+}

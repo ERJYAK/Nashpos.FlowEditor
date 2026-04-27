@@ -8,13 +8,13 @@ public sealed class GetWorkflowQueryHandler(IWorkflowRepository repository) : IG
 {
     public async Task<Result<WorkflowDocument>> HandleAsync(GetWorkflowQuery query, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(query.WorkflowId))
-            return Error.Validation("workflowId is required",
-                new Dictionary<string, string[]> { ["workflowId"] = ["required"] });
+        if (string.IsNullOrWhiteSpace(query.Name))
+            return Error.Validation("name is required",
+                new Dictionary<string, string[]> { ["name"] = ["required"] });
 
-        var document = await repository.GetAsync(query.WorkflowId, ct);
+        var document = await repository.GetAsync(query.Name, ct);
         return document is null
-            ? Error.NotFound($"workflow '{query.WorkflowId}' not found")
+            ? Error.NotFound($"workflow '{query.Name}' not found")
             : Result<WorkflowDocument>.Success(document);
     }
 }

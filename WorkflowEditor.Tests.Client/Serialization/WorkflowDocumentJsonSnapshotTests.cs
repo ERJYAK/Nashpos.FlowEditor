@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Text.Json;
 using VerifyXunit;
 using WorkflowEditor.Core.Models;
@@ -10,41 +9,24 @@ namespace WorkflowEditor.Tests.Client.Serialization;
 public class WorkflowDocumentJsonSnapshotTests
 {
     [Fact]
-    public Task Document_with_mixed_step_types_and_link_serializes_to_known_shape()
+    public Task Document_with_mixed_step_types_serializes_to_known_shape()
     {
         var document = new WorkflowDocument
         {
-            WorkflowId = "wf-snap",
-            Name = "snapshot",
-            CreatedAt = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Utc),
-            Steps = new WorkflowStep[]
-            {
-                new BaseStep
-                {
-                    Id = "step-base",
-                    Name = "Base",
-                    Position = new CanvasPosition(10, 20)
-                },
+            Name = "import",
+            Description = "Import flow",
+            Steps =
+            [
+                new SubflowStep { Id = "1", SubflowName = "prepare-import", Description = "Prepare import subflow" },
                 new SubflowStep
                 {
-                    Id = "step-sub",
-                    Name = "Subflow",
-                    Position = new CanvasPosition(100, 200),
-                    SubflowId = "sub-1"
-                }
-            }.ToImmutableDictionary(s => s.Id),
-            Links = new[]
-            {
-                new WorkflowLink
-                {
-                    Id = "link-1",
-                    SourceNodeId = "step-base",
-                    SourcePortId = "Right",
-                    TargetNodeId = "step-sub",
-                    TargetPortId = "Left",
-                    Label = "next"
-                }
-            }.ToImmutableDictionary(l => l.Id)
+                    Id = "2",
+                    SubflowName = "iterate-tenants",
+                    Description = "Iterate through the tenant list",
+                    Iterate = true
+                },
+                new BaseStep { Id = "3", StepKind = "apply-import", Description = "Transfer imported data" }
+            ]
         };
 
         var json = JsonSerializer.Serialize(document, JsonConfiguration.GetOptions());
