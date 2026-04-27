@@ -17,11 +17,8 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\WorkflowEditor.Contracts\WorkflowEditor.Contracts.csproj" />
         <ProjectReference Include="..\WorkflowEditor.Core\WorkflowEditor.Core.csproj" />
-    </ItemGroup>
-
-    <ItemGroup>
-        <Protobuf Include="..\WorkflowEditor.Api\Protos\workflow.proto" GrpcServices="Client" />
     </ItemGroup>
 
 </Project>

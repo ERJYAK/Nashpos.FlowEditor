@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package workfloweditor;
+
+import "google/protobuf/timestamp.proto";
+
+// C#-namespace для генерируемого кода
+option csharp_namespace = "WorkflowEditor.Contracts.Grpc";
+
+service WorkflowStorage {
+  rpc GetWorkflow (GetWorkflowRequest) returns (GetWorkflowResponse);
+  rpc SaveWorkflow (SaveWorkflowRequest) returns (SaveWorkflowResponse);
+  rpc ListWorkflows (ListWorkflowsRequest) returns (ListWorkflowsResponse);
+  rpc DeleteWorkflow (DeleteWorkflowRequest) returns (DeleteWorkflowResponse);
+}
+
+message GetWorkflowRequest {
+  string workflow_id = 1;
+}
+
+message GetWorkflowResponse {
+  WorkflowDocument document = 1;
+}
+
+message SaveWorkflowRequest {
+  WorkflowDocument document = 1;
+}
+
+message SaveWorkflowResponse {
+  WorkflowDocument document = 1;
+}
+
+message ListWorkflowsRequest {}
+
+message ListWorkflowsResponse {
+  repeated WorkflowSummary items = 1;
+}
+
+message WorkflowSummary {
+  string workflow_id = 1;
+  string name = 2;
+  google.protobuf.Timestamp created_at = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message DeleteWorkflowRequest {
+  string workflow_id = 1;
+}
+
+message DeleteWorkflowResponse {
+  bool deleted = 1;
+}
+
+message WorkflowDocument {
+  string workflow_id = 1;
+  string name = 2;
+  google.protobuf.Timestamp created_at = 3;
+  repeated Step steps = 4;
+  repeated Link links = 5;
+}
+
+message Position {
+  double x = 1;
+  double y = 2;
+}
+
+message Step {
+  string id = 1;
+  string name = 2;
+  Position position = 3;
+  oneof kind {
+    BaseStepData base = 10;
+    SubflowStepData subflow = 11;
+  }
+}
+
+message BaseStepData {}
+
+message SubflowStepData {
+  string subflow_id = 1;
+}
+
+message Link {
+  string id = 1;
+  string source_node_id = 2;
+  string source_port_id = 3;
+  string target_node_id = 4;
+  string target_port_id = 5;
+  string label = 6;
+}

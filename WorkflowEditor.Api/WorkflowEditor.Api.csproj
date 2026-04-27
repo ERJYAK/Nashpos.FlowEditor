@@ -7,12 +7,9 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Protobuf Include="Protos\workflow.proto" GrpcServices="Server" />
-    </ItemGroup>
-
-    <ItemGroup>
         <ProjectReference Include="..\WorkflowEditor.Application\WorkflowEditor.Application.csproj" />
         <ProjectReference Include="..\WorkflowEditor.Infrastructure\WorkflowEditor.Infrastructure.csproj" />
+        <ProjectReference Include="..\WorkflowEditor.Contracts\WorkflowEditor.Contracts.csproj" />
         <ProjectReference Include="..\WorkflowEditor.Core\WorkflowEditor.Core.csproj" />
     </ItemGroup>
 

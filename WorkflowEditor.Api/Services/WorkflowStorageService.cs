@@ -1,63 +1,78 @@
-using System.Text.Json;
+using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using WorkflowEditor.Api.Grpc;
+using WorkflowEditor.Application.Workflows.Delete;
 using WorkflowEditor.Application.Workflows.Get;
+using WorkflowEditor.Application.Workflows.List;
 using WorkflowEditor.Application.Workflows.Save;
 using WorkflowEditor.Contracts.Grpc;
-using WorkflowEditor.Core.Models;
-using WorkflowEditor.Core.Serialization;
+using WorkflowEditor.Contracts.Mapping;
 
 namespace WorkflowEditor.Api.Services;
 
 public sealed class WorkflowStorageService(
     IGetWorkflowQueryHandler getHandler,
     ISaveWorkflowCommandHandler saveHandler,
+    IListWorkflowsQueryHandler listHandler,
+    IDeleteWorkflowCommandHandler deleteHandler,
     ILogger<WorkflowStorageService> logger) : WorkflowStorage.WorkflowStorageBase
 {
-    private static readonly JsonSerializerOptions JsonOptions = JsonConfiguration.GetOptions();
-
-    public override async Task<WorkflowDocumentResponse> GetWorkflow(GetWorkflowRequest request, ServerCallContext context)
+    public override async Task<GetWorkflowResponse> GetWorkflow(GetWorkflowRequest request, ServerCallContext context)
     {
         logger.LogInformation("get workflow {WorkflowId}", request.WorkflowId);
 
         var result = await getHandler.HandleAsync(new GetWorkflowQuery(request.WorkflowId), context.CancellationToken);
         if (!result.IsSuccess) throw result.Error!.ToRpcException();
 
-        var document = result.Value!;
-        return new WorkflowDocumentResponse
-        {
-            WorkflowId = document.WorkflowId,
-            Name = document.Name,
-            JsonPayload = JsonSerializer.Serialize(document, JsonOptions)
-        };
+        return new GetWorkflowResponse { Document = WorkflowProtoMapper.ToProto(result.Value!) };
     }
 
     public override async Task<SaveWorkflowResponse> SaveWorkflow(SaveWorkflowRequest request, ServerCallContext context)
     {
-        logger.LogInformation("save workflow {WorkflowId} ({PayloadSize} chars)",
-            request.WorkflowId, request.JsonPayload.Length);
+        if (request.Document is null)
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "document is required"));
 
-        WorkflowDocument? document;
-        try
-        {
-            document = JsonSerializer.Deserialize<WorkflowDocument>(request.JsonPayload, JsonOptions);
-        }
-        catch (JsonException ex)
-        {
-            throw new RpcException(new Status(StatusCode.InvalidArgument, $"invalid JSON payload: {ex.Message}"));
-        }
+        logger.LogInformation("save workflow {WorkflowId} ({StepCount} steps)",
+            request.Document.WorkflowId, request.Document.Steps.Count);
 
-        if (document is null)
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "json payload is empty"));
-
-        if (!string.Equals(document.WorkflowId, request.WorkflowId, StringComparison.Ordinal))
-            throw new RpcException(new Status(
-                StatusCode.InvalidArgument,
-                "workflowId in payload must match request.workflowId"));
-
+        var document = WorkflowProtoMapper.FromProto(request.Document);
         var result = await saveHandler.HandleAsync(new SaveWorkflowCommand(document), context.CancellationToken);
         if (!result.IsSuccess) throw result.Error!.ToRpcException();
 
-        return new SaveWorkflowResponse { Success = true, ErrorMessage = string.Empty };
+        return new SaveWorkflowResponse { Document = WorkflowProtoMapper.ToProto(result.Value!) };
     }
+
+    public override async Task<ListWorkflowsResponse> ListWorkflows(ListWorkflowsRequest request, ServerCallContext context)
+    {
+        var result = await listHandler.HandleAsync(new ListWorkflowsQuery(), context.CancellationToken);
+        if (!result.IsSuccess) throw result.Error!.ToRpcException();
+
+        var response = new ListWorkflowsResponse();
+        foreach (var summary in result.Value!)
+        {
+            response.Items.Add(new WorkflowSummary
+            {
+                WorkflowId = summary.WorkflowId,
+                Name = summary.Name,
+                CreatedAt = Timestamp.FromDateTime(EnsureUtc(summary.CreatedAt)),
+                UpdatedAt = Timestamp.FromDateTime(EnsureUtc(summary.UpdatedAt))
+            });
+        }
+        return response;
+    }
+
+    public override async Task<DeleteWorkflowResponse> DeleteWorkflow(DeleteWorkflowRequest request, ServerCallContext context)
+    {
+        var result = await deleteHandler.HandleAsync(new DeleteWorkflowCommand(request.WorkflowId), context.CancellationToken);
+        if (!result.IsSuccess) throw result.Error!.ToRpcException();
+
+        return new DeleteWorkflowResponse { Deleted = result.Value };
+    }
+
+    private static DateTime EnsureUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+    };
 }

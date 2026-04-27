@@ -1,15 +1,12 @@
-using System.Text.Json;
 using Grpc.Core;
 using WorkflowEditor.Contracts.Grpc;
-using WorkflowEditor.Core.Models;
-using WorkflowEditor.Core.Serialization;
+using WorkflowEditor.Contracts.Mapping;
+using WorkflowDocument = WorkflowEditor.Core.Models.WorkflowDocument;
 
 namespace WorkflowEditor.Client.Services.Api;
 
 public sealed class GrpcWorkflowApi : IWorkflowApi
 {
-    private static readonly JsonSerializerOptions JsonOptions = JsonConfiguration.GetOptions();
-
     private readonly WorkflowStorage.WorkflowStorageClient _client;
 
     public GrpcWorkflowApi(WorkflowStorage.WorkflowStorageClient client)
@@ -25,19 +22,14 @@ public sealed class GrpcWorkflowApi : IWorkflowApi
                 new GetWorkflowRequest { WorkflowId = workflowId },
                 cancellationToken: cancellationToken);
 
-            var document = JsonSerializer.Deserialize<WorkflowDocument>(response.JsonPayload, JsonOptions);
-            if (document is null)
+            if (response.Document is null)
                 return ApiResult<WorkflowDocument>.ServerError("Сервер вернул пустой документ");
 
-            return ApiResult<WorkflowDocument>.Success(document);
+            return ApiResult<WorkflowDocument>.Success(WorkflowProtoMapper.FromProto(response.Document));
         }
         catch (RpcException ex)
         {
             return MapRpcException<WorkflowDocument>(ex);
-        }
-        catch (JsonException ex)
-        {
-            return ApiResult<WorkflowDocument>.ServerError($"Не удалось разобрать документ: {ex.Message}");
         }
     }
 
@@ -45,19 +37,11 @@ public sealed class GrpcWorkflowApi : IWorkflowApi
     {
         try
         {
-            var payload = JsonSerializer.Serialize(document, JsonOptions);
-            var response = await _client.SaveWorkflowAsync(
-                new SaveWorkflowRequest
-                {
-                    WorkflowId = document.WorkflowId,
-                    Name = document.Name,
-                    JsonPayload = payload
-                },
+            await _client.SaveWorkflowAsync(
+                new SaveWorkflowRequest { Document = WorkflowProtoMapper.ToProto(document) },
                 cancellationToken: cancellationToken);
 
-            return response.Success
-                ? ApiResult<Unit>.Success(Unit.Value)
-                : ApiResult<Unit>.ServerError(response.ErrorMessage);
+            return ApiResult<Unit>.Success(Unit.Value);
         }
         catch (RpcException ex)
         {

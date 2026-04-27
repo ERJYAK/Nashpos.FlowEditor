@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <ItemGroup>
+        <PackageReference Include="Google.Protobuf" />
+        <PackageReference Include="Grpc.Tools">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Grpc.Core.Api" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Protobuf Include="Protos\workflow.proto" GrpcServices="Both" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\WorkflowEditor.Core\WorkflowEditor.Core.csproj" />
+    </ItemGroup>
+
+</Project>
