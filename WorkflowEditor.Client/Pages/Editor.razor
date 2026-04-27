@@ -11,9 +11,9 @@
          Создать процесс
     </MudButton>
 
-    <MudMenu Label="Добавить шаг" 
-             Variant="Variant.Filled" 
-             Color="Color.Secondary" 
+    <MudMenu Label="Добавить шаг"
+             Variant="Variant.Filled"
+             Color="Color.Secondary"
              Class="ml-2"
              StartIcon="@Icons.Material.Filled.AddBox"
              EndIcon="@Icons.Material.Filled.KeyboardArrowDown"
@@ -21,7 +21,16 @@
         <MudMenuItem OnClick="@(() => AddStepToActive("base"))">Базовый шаг</MudMenuItem>
         <MudMenuItem OnClick="@(() => AddStepToActive("subflow"))">Шаг subflow</MudMenuItem>
     </MudMenu>
-    
+
+    <MudButton Variant="Variant.Outlined"
+               Color="Color.Default"
+               StartIcon="@Icons.Material.Filled.Close"
+               Class="ml-2"
+               Disabled="@(State.Value.ActiveDocumentId == null)"
+               OnClick="CloseActiveTab">
+        Закрыть вкладку
+    </MudButton>
+
     <MudSpacer />
 </MudAppBar>
 
@@ -36,12 +45,13 @@
                  ActivePanelIndex="@GetActiveIndex()"
                  ActivePanelIndexChanged="OnTabChanged">
 
-            @* Добавляем OrderBy прямо в разметку *@
             @foreach (var doc in State.Value.OpenDocuments.Values.OrderBy(d => d.CreatedAt))
             {
-                <MudTabPanel Text="@doc.Name" Tag="@doc.WorkflowId">
+                var isDirty = State.Value.IsDirty(doc.WorkflowId);
+                var tabText = isDirty ? $"● {doc.Name}" : doc.Name;
+                <MudTabPanel Text="@tabText" Tag="@doc.WorkflowId">
 
-                    @* КРИТИЧЕСКИЙ ФИКС: Рендерим холст ТОЛЬКО для активной вкладки *@
+                    @* Рендерим холст ТОЛЬКО для активной вкладки *@
                     @if (State.Value.ActiveDocumentId == doc.WorkflowId)
                     {
                         <div style="height: calc(100vh - 120px);">
@@ -72,6 +82,7 @@
 @code {
     [Inject] private IState<EditorState> State { get; set; } = null!;
     [Inject] private IDispatcher Dispatcher { get; set; } = null!;
+    [Inject] private IJSRuntime JS { get; set; } = null!;
     
     private EditorContextMenu _contextMenu = null!;
     private CanvasTab? _activeCanvas;
@@ -150,5 +161,24 @@
     private void CreateNewWorkflow()
     {
         Dispatcher.Dispatch(new CreateWorkflowRequestedAction());
+    }
+
+    private async Task CloseTab(string workflowId)
+    {
+        if (State.Value.IsDirty(workflowId))
+        {
+            var confirmed = await JS.InvokeAsync<bool>(
+                "confirm",
+                "В этом процессе есть несохранённые изменения. Закрыть без сохранения?");
+            if (!confirmed) return;
+        }
+
+        Dispatcher.Dispatch(new CloseTabAction(workflowId));
+    }
+
+    private Task CloseActiveTab()
+    {
+        var activeId = State.Value.ActiveDocumentId;
+        return activeId == null ? Task.CompletedTask : CloseTab(activeId);
     }
 }

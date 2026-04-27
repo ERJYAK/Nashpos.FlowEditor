@@ -1,11 +1,10 @@
 using Blazor.Diagrams.Core.Anchors;
 using Blazor.Diagrams.Core.Models;
+using Fluxor;
 using WorkflowEditor.Client.Diagram.Nodes;
+using WorkflowEditor.Core.Models;
 
 namespace WorkflowEditor.Client.Store.Editor;
-
-using Fluxor;
-using WorkflowEditor.Core.Models;
 
 public static class EditorReducers
 {
@@ -35,7 +34,6 @@ public static class EditorReducers
         var copiedLinkIds = new HashSet<string>();
         var copiedLinks = new List<WorkflowLink>();
 
-        // Линки между выделенными узлами
         foreach (var link in document.Links)
         {
             if (selectedStepIds.Contains(link.SourceNodeId) &&
@@ -46,7 +44,6 @@ public static class EditorReducers
             }
         }
 
-        // Явно выделенные линки (даже если один из их узлов не выделен — копируем, если оба узла существуют)
         foreach (var linkModel in action.Selected.OfType<LinkModel>())
         {
             var stateLink = ResolveStateLink(linkModel, document);
@@ -79,6 +76,8 @@ public static class EditorReducers
         }
 
         var clipboard = state.Clipboard;
+        if (clipboard.Steps.Count == 0 && clipboard.Links.Count == 0) return state;
+
         var idMap = new Dictionary<string, string>();
         var newSteps = document.Steps.ToList();
 
@@ -105,7 +104,6 @@ public static class EditorReducers
             if (!idMap.TryGetValue(link.SourceNodeId, out var newSourceId) ||
                 !idMap.TryGetValue(link.TargetNodeId, out var newTargetId))
             {
-                // Один из концов линка не входит в буфер — пропускаем, чтобы не тянуть «висящие» связи
                 continue;
             }
 
@@ -119,12 +117,9 @@ public static class EditorReducers
                 Label = link.Label
             });
         }
-        
+
         var updatedDocument = document with { Steps = newSteps, Links = newLinks };
-        return state with
-        {
-            OpenDocuments = state.OpenDocuments.SetItem(state.ActiveDocumentId, updatedDocument)
-        };
+        return state.WithMutation(state.ActiveDocumentId, updatedDocument);
     }
 
     [ReducerMethod]
@@ -149,12 +144,12 @@ public static class EditorReducers
             if (stateLink != null)
                 explicitLinkIds.Add(stateLink.Id);
         }
-        
+
         if (nodeIds.Count == 0 && explicitLinkIds.Count == 0)
         {
             return state;
         }
-        
+
         var newSteps = document.Steps
             .Where(s => !nodeIds.Contains(s.Id))
             .ToList();
@@ -167,10 +162,7 @@ public static class EditorReducers
             .ToList();
 
         var updatedDocument = document with { Steps = newSteps, Links = newLinks };
-        return state with
-        {
-            OpenDocuments = state.OpenDocuments.SetItem(state.ActiveDocumentId, updatedDocument)
-        };
+        return state.WithMutation(state.ActiveDocumentId, updatedDocument);
     }
 
     private static WorkflowLink? ResolveStateLink(LinkModel linkModel, WorkflowDocument document)
@@ -193,13 +185,29 @@ public static class EditorReducers
     [ReducerMethod]
     public static EditorState ReduceOpenWorkflowAction(EditorState state, OpenWorkflowAction action)
     {
-        // Добавляем или обновляем документ в словаре
-        var newDocuments = state.OpenDocuments.SetItem(action.Document.WorkflowId, action.Document);
-        
         return state with
         {
-            OpenDocuments = newDocuments,
-            ActiveDocumentId = action.Document.WorkflowId
+            OpenDocuments = state.OpenDocuments.SetItem(action.Document.WorkflowId, action.Document),
+            ActiveDocumentId = action.Document.WorkflowId,
+            DirtyDocuments = state.DirtyDocuments.Remove(action.Document.WorkflowId)
+        };
+    }
+
+    [ReducerMethod]
+    public static EditorState ReduceCloseTabAction(EditorState state, CloseTabAction action)
+    {
+        if (!state.OpenDocuments.ContainsKey(action.WorkflowId)) return state;
+
+        var remaining = state.OpenDocuments.Remove(action.WorkflowId);
+        var nextActive = state.ActiveDocumentId == action.WorkflowId
+            ? remaining.Keys.FirstOrDefault()
+            : state.ActiveDocumentId;
+
+        return state with
+        {
+            OpenDocuments = remaining,
+            ActiveDocumentId = nextActive,
+            DirtyDocuments = state.DirtyDocuments.Remove(action.WorkflowId)
         };
     }
 
@@ -209,80 +217,73 @@ public static class EditorReducers
         if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document))
             return state;
 
-        // Создаем новый список шагов и новый документ, чтобы сохранить иммутабельность
         var newSteps = document.Steps.ToList();
         newSteps.Add(action.Step);
-        
+
         var updatedDocument = document with { Steps = newSteps };
-        
-        return state with
-        {
-            OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, updatedDocument)
-        };
+        return state.WithMutation(action.WorkflowId, updatedDocument);
     }
-    
+
     [ReducerMethod]
     public static EditorState ReduceLoadWorkflowAction(EditorState state, LoadWorkflowAction action)
     {
-        // Включаем индикатор загрузки (опционально для UI)
         return state with { IsLoading = true };
     }
 
     [ReducerMethod]
     public static EditorState ReduceLoadWorkflowSuccessAction(EditorState state, LoadWorkflowSuccessAction action)
     {
-        // Добавляем новый документ в словарь OpenDocuments
-        // Если документ с таким ID уже открыт, он будет обновлен (Source of Truth)
-        var newDocuments = state.OpenDocuments.SetItem(action.Document.WorkflowId, action.Document);
-
         return state with
         {
             IsLoading = false,
-            OpenDocuments = newDocuments,
-            ActiveDocumentId = action.Document.WorkflowId // Переключаем фокус на новую вкладку
+            OpenDocuments = state.OpenDocuments.SetItem(action.Document.WorkflowId, action.Document),
+            ActiveDocumentId = action.Document.WorkflowId,
+            DirtyDocuments = state.DirtyDocuments.Remove(action.Document.WorkflowId)
         };
     }
 
     [ReducerMethod]
     public static EditorState ReduceLoadWorkflowFailedAction(EditorState state, LoadWorkflowFailedAction action)
     {
-        // Выключаем лоадер при ошибке
         return state with { IsLoading = false };
     }
-    
+
+    [ReducerMethod]
+    public static EditorState ReduceSaveWorkflowSuccessAction(EditorState state, SaveWorkflowSuccessAction action)
+    {
+        return state with { DirtyDocuments = state.DirtyDocuments.Remove(action.WorkflowId) };
+    }
+
     [ReducerMethod]
     public static EditorState ReduceAddLinkAction(EditorState state, AddLinkAction action)
     {
         if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document)) return state;
+        if (document.Links.Any(l => l.Id == action.Link.Id)) return state;
 
         var newLinks = document.Links.ToList();
-        // Защита от дубликатов (хотя Fluxor сам по себе идемпотентен, это полезно)
-        if (!newLinks.Any(l => l.Id == action.Link.Id))
-        {
-            newLinks.Add(action.Link);
-        }
+        newLinks.Add(action.Link);
 
         var updatedDocument = document with { Links = newLinks };
-        return state with { OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, updatedDocument) };
+        return state.WithMutation(action.WorkflowId, updatedDocument);
     }
 
     [ReducerMethod]
     public static EditorState ReduceRemoveLinkAction(EditorState state, RemoveLinkAction action)
     {
         if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document)) return state;
+        if (document.Links.All(l => l.Id != action.LinkId)) return state;
 
         var newLinks = document.Links.Where(l => l.Id != action.LinkId).ToList();
         var updatedDocument = document with { Links = newLinks };
-        
-        return state with { OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, updatedDocument) };
+        return state.WithMutation(action.WorkflowId, updatedDocument);
     }
-    
+
     [ReducerMethod]
     public static EditorState ReduceSwitchTabAction(EditorState state, SwitchTabAction action)
     {
         return state with { ActiveDocumentId = action.WorkflowId };
     }
-    
+
     [ReducerMethod]
     public static EditorState ReduceMoveStepsAction(EditorState state, MoveStepsAction action)
     {
@@ -299,45 +300,48 @@ public static class EditorReducers
             changed = true;
             return s.WithPosition(newPosition);
         }).ToList();
-        
+
         if (!changed) return state;
 
         var updatedDocument = document with { Steps = newSteps };
-        return state with { OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, updatedDocument) };
+        return state.WithMutation(action.WorkflowId, updatedDocument);
     }
-    
+
     [ReducerMethod]
     public static EditorState ReduceRemoveStepAction(EditorState state, RemoveStepAction action)
     {
-        if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document)) 
+        if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document))
             return state;
+        if (document.Steps.All(s => s.Id != action.StepId)) return state;
 
-        // Удаляем сам шаг
         var newSteps = document.Steps.Where(s => s.Id != action.StepId).ToList();
-    
-        // Зачищаем все связанные линки (страховка на уровне источника истины)
-        var newLinks = document.Links.Where(l => 
+
+        var newLinks = document.Links.Where(l =>
             l.SourceNodeId != action.StepId && l.TargetNodeId != action.StepId).ToList();
 
         var updatedDocument = document with { Steps = newSteps, Links = newLinks };
-    
-        return state with 
-        { 
-            OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, updatedDocument) 
-        };
+        return state.WithMutation(action.WorkflowId, updatedDocument);
     }
-    
+
     [ReducerMethod]
     public static EditorState ReduceRenameStepAction(EditorState state, RenameStepAction action)
     {
         if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document)) return state;
 
+        var changed = false;
         var newSteps = document.Steps
-            .Select(s => s.Id == action.StepId ? s.WithName(action.NewName) : s)
+            .Select(s =>
+            {
+                if (s.Id != action.StepId || s.Name == action.NewName) return s;
+                changed = true;
+                return s.WithName(action.NewName);
+            })
             .ToList();
 
+        if (!changed) return state;
+
         var updatedDocument = document with { Steps = newSteps };
-        return state with { OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, updatedDocument) };
+        return state.WithMutation(action.WorkflowId, updatedDocument);
     }
 
     [ReducerMethod]
@@ -351,4 +355,11 @@ public static class EditorReducers
     {
         return state with { EditingStepId = null };
     }
+
+    private static EditorState WithMutation(this EditorState state, string workflowId, WorkflowDocument updated) =>
+        state with
+        {
+            OpenDocuments = state.OpenDocuments.SetItem(workflowId, updated),
+            DirtyDocuments = state.DirtyDocuments.Add(workflowId)
+        };
 }

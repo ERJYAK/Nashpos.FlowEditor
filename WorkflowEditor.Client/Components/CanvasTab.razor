@@ -80,6 +80,12 @@
     private bool _isMmbPanning;
     private double _mmbPanLastX, _mmbPanLastY;
 
+    // Подписки на TargetChanged каждого линка — чтобы корректно отписываться при удалении
+    private readonly Dictionary<Blazor.Diagrams.Core.Models.Base.BaseLinkModel,
+        Action<Blazor.Diagrams.Core.Models.Base.BaseLinkModel,
+            Blazor.Diagrams.Core.Anchors.Anchor,
+            Blazor.Diagrams.Core.Anchors.Anchor>> _linkTargetChangedHandlers = new();
+
     protected override void OnInitialized()
     {
         base.OnInitialized();
@@ -133,15 +139,20 @@
                     if (newNode != null)
                     {
                         Diagram.Nodes.Add(newNode);
-                        newlyAddedModels.Add(newNode); // Собираем добавленный узел
+                        newlyAddedModels.Add(newNode);
                     }
                 }
-                else if (existingNode.Title != step.Name)
+                else
                 {
-                    existingNode.Title = step.Name;
-                    existingNode.Refresh();
+                    if (existingNode.Title != step.Name)
+                    {
+                        existingNode.Title = step.Name;
+                        existingNode.Refresh();
+                    }
+                    // Подтверждаем позицию из state как «последнюю синхронизированную»,
+                    // чтобы PointerUp не зафиксировал ложное перемещение
+                    existingNode.MarkSynced(step.Position);
                 }
-                // Существующие узлы: позиция управляется холстом, не перезаписывается из состояния
             }
 
             // 2. Синхронизация линков
@@ -287,19 +298,19 @@
                 return;
             }
 
-            if (!State.Value.OpenDocuments.TryGetValue(WorkflowId, out var document)) return;
+            if (!State.Value.OpenDocuments.TryGetValue(WorkflowId, out _)) return;
 
-            // Собираем все сдвиги узлов и фиксируем одним экшеном
+            // Собираем сдвиги, сравнивая текущую позицию узла с последней синхронизированной.
+            // Так узел можно осознанно переместить в (0,0), и при этом мы не диспатчим ложные события
+            // для узлов, чью позицию холст ещё не успел инициализировать.
             var moves = new List<(string StepId, CanvasPosition NewPosition)>();
             foreach (var node in Diagram.Nodes.OfType<WorkflowNodeModel>())
             {
-                if (node.Position.X == 0 && node.Position.Y == 0) continue;
-                var step = document.Steps.FirstOrDefault(s => s.Id == node.StepId);
-                if (step == null) continue;
+                var current = new CanvasPosition(node.Position.X, node.Position.Y);
+                if (current == node.LastSyncedPosition) continue;
 
-                if (step.Position.X == node.Position.X && step.Position.Y == node.Position.Y) continue;
-
-                moves.Add((node.StepId, new CanvasPosition(node.Position.X, node.Position.Y)));
+                moves.Add((node.StepId, current));
+                node.MarkSynced(current);
             }
 
             if (moves.Count > 0)
@@ -413,10 +424,12 @@
 
     private void OnLinkAdded(Blazor.Diagrams.Core.Models.Base.BaseLinkModel link)
     {
-        link.TargetChanged += (l, _, newTarget) => 
+        Action<Blazor.Diagrams.Core.Models.Base.BaseLinkModel,
+            Blazor.Diagrams.Core.Anchors.Anchor,
+            Blazor.Diagrams.Core.Anchors.Anchor> handler = (l, _, newTarget) =>
         {
             if (_isSyncing) return;
-            
+
             var sourcePort = (l.Source as SinglePortAnchor)?.Port;
             var targetPort = (newTarget as SinglePortAnchor)?.Port;
 
@@ -426,7 +439,7 @@
                 {
                     Id = Guid.NewGuid().ToString(),
                     SourceNodeId = sourceNode.StepId,
-                    SourcePortId = sourcePort.Alignment.ToString(), 
+                    SourcePortId = sourcePort.Alignment.ToString(),
                     TargetNodeId = targetNode.StepId,
                     TargetPortId = targetPort.Alignment.ToString()
                 };
@@ -434,12 +447,20 @@
                 Dispatcher.Dispatch(new AddLinkAction(WorkflowId, workflowLink));
             }
         };
+
+        link.TargetChanged += handler;
+        _linkTargetChangedHandlers[link] = handler;
     }
 
     private void OnLinkRemoved(Blazor.Diagrams.Core.Models.Base.BaseLinkModel link)
     {
-        if (_isSyncing || !(link.Target is SinglePortAnchor)) return; 
-        
+        if (_linkTargetChangedHandlers.Remove(link, out var handler))
+        {
+            link.TargetChanged -= handler;
+        }
+
+        if (_isSyncing || !(link.Target is SinglePortAnchor)) return;
+
         if (State.Value.OpenDocuments.TryGetValue(WorkflowId, out var document))
         {
             var stateLink = document.Links.FirstOrDefault(dl => MatchLink(link, dl));
@@ -482,5 +503,11 @@
         Diagram.Links.Added -= OnLinkAdded;
         Diagram.Links.Removed -= OnLinkRemoved;
         Diagram.Nodes.Removed -= OnNodeRemoved;
+
+        foreach (var (link, handler) in _linkTargetChangedHandlers)
+        {
+            link.TargetChanged -= handler;
+        }
+        _linkTargetChangedHandlers.Clear();
     }
 }
