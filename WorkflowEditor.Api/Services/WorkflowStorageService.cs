@@ -1,50 +1,63 @@
+using System.Text.Json;
+using Grpc.Core;
+using WorkflowEditor.Api.Grpc;
+using WorkflowEditor.Application.Workflows.Get;
+using WorkflowEditor.Application.Workflows.Save;
+using WorkflowEditor.Contracts.Grpc;
+using WorkflowEditor.Core.Models;
+using WorkflowEditor.Core.Serialization;
+
 namespace WorkflowEditor.Api.Services;
 
-using Grpc.Core;
-using WorkflowEditor.Contracts.Grpc;
-
-public class WorkflowStorageService : WorkflowStorage.WorkflowStorageBase
+public sealed class WorkflowStorageService(
+    IGetWorkflowQueryHandler getHandler,
+    ISaveWorkflowCommandHandler saveHandler,
+    ILogger<WorkflowStorageService> logger) : WorkflowStorage.WorkflowStorageBase
 {
-    // Пока реализуем заглушку. В будущем здесь будет DI (например, IRepository) 
-    // для сохранения jsonPayload в базу данных или файловую систему.
+    private static readonly JsonSerializerOptions JsonOptions = JsonConfiguration.GetOptions();
 
-    public override Task<SaveWorkflowResponse> SaveWorkflow(SaveWorkflowRequest request, ServerCallContext context)
+    public override async Task<WorkflowDocumentResponse> GetWorkflow(GetWorkflowRequest request, ServerCallContext context)
     {
-        Console.WriteLine($"[gRPC] Сохранение документа: {request.WorkflowId}");
-        Console.WriteLine($"[gRPC] Payload size: {request.JsonPayload.Length} chars");
+        logger.LogInformation("get workflow {WorkflowId}", request.WorkflowId);
 
-        return Task.FromResult(new SaveWorkflowResponse
+        var result = await getHandler.HandleAsync(new GetWorkflowQuery(request.WorkflowId), context.CancellationToken);
+        if (!result.IsSuccess) throw result.Error!.ToRpcException();
+
+        var document = result.Value!;
+        return new WorkflowDocumentResponse
         {
-            Success = true,
-            ErrorMessage = string.Empty
-        });
+            WorkflowId = document.WorkflowId,
+            Name = document.Name,
+            JsonPayload = JsonSerializer.Serialize(document, JsonOptions)
+        };
     }
 
-    public override Task<WorkflowDocumentResponse> GetWorkflow(GetWorkflowRequest request, ServerCallContext context)
+    public override async Task<SaveWorkflowResponse> SaveWorkflow(SaveWorkflowRequest request, ServerCallContext context)
     {
-        
-        var testDocument = """
-                           {
-                             "workflowId": "main-flow-id",
-                             "name": "Основной процесс",
-                             "steps": [
-                               {
-                                 "type": "subflow",
-                                 "id": "node-1",
-                                 "name": "Проверка оплаты",
-                                 "position": { "x": 100, "y": 100 },
-                                 "subflowId": "payment-logic-v1"
-                               }
-                             ],
-                             "links": []
-                           }
-                           """;
+        logger.LogInformation("save workflow {WorkflowId} ({PayloadSize} chars)",
+            request.WorkflowId, request.JsonPayload.Length);
 
-        return Task.FromResult(new WorkflowDocumentResponse
+        WorkflowDocument? document;
+        try
         {
-            WorkflowId = request.WorkflowId,
-            Name = "Основной процесс",
-            JsonPayload = testDocument
-        });
+            document = JsonSerializer.Deserialize<WorkflowDocument>(request.JsonPayload, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, $"invalid JSON payload: {ex.Message}"));
+        }
+
+        if (document is null)
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "json payload is empty"));
+
+        if (!string.Equals(document.WorkflowId, request.WorkflowId, StringComparison.Ordinal))
+            throw new RpcException(new Status(
+                StatusCode.InvalidArgument,
+                "workflowId in payload must match request.workflowId"));
+
+        var result = await saveHandler.HandleAsync(new SaveWorkflowCommand(document), context.CancellationToken);
+        if (!result.IsSuccess) throw result.Error!.ToRpcException();
+
+        return new SaveWorkflowResponse { Success = true, ErrorMessage = string.Empty };
     }
 }
