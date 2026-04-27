@@ -1,11 +1,9 @@
 using Blazor.Diagrams.Core.Anchors;
 using Blazor.Diagrams.Core.Models;
 using WorkflowEditor.Client.Diagram.Nodes;
-using WorkflowEditor.Core.Models.Steps;
 
 namespace WorkflowEditor.Client.Store.Editor;
 
-using System.Collections.Immutable;
 using Fluxor;
 using WorkflowEditor.Core.Models;
 
@@ -93,27 +91,12 @@ public static class EditorReducers
                 step.Position.X - clipboard.Origin.X + action.X,
                 step.Position.Y - clipboard.Origin.Y + action.Y);
 
-            WorkflowStep? cloned = step switch
-            {
-                SubflowStep subflow => subflow with
-                {
-                    Id = newId,
-                    Name = subflow.Name + " (Copy)",
-                    Position = newPosition
-                },
-                BaseStep baseStep => baseStep with
-                {
-                    Id = newId,
-                    Name = baseStep.Name + " (Copy)",
-                    Position = newPosition
-                },
-                _ => null
-            };
+            var cloned = step
+                .CloneWithId(newId)
+                .WithName(step.Name + " (Copy)")
+                .WithPosition(newPosition);
 
-            if (cloned != null)
-            {
-                newSteps.Add(cloned);
-            }
+            newSteps.Add(cloned);
         }
 
         var newLinks = document.Links.ToList();
@@ -314,10 +297,7 @@ public static class EditorReducers
             if (s.Position == newPosition) return s;
 
             changed = true;
-
-            if (s is SubflowStep sub) return sub with { Position = newPosition };
-            if (s is BaseStep b) return b with { Position = newPosition };
-            return s;
+            return s.WithPosition(newPosition);
         }).ToList();
         
         if (!changed) return state;
@@ -347,23 +327,16 @@ public static class EditorReducers
         };
     }
     
-    // Добавь этот метод в EditorReducers.cs
     [ReducerMethod]
     public static EditorState ReduceRenameStepAction(EditorState state, RenameStepAction action)
     {
         if (!state.OpenDocuments.TryGetValue(action.WorkflowId, out var document)) return state;
 
-        var newSteps = document.Steps.Select(s => 
-        {
-            if (s.Id != action.StepId) return s;
-        
-            // Полиморфное обновление в зависимости от типа шага
-            if (s is SubflowStep sub) return sub with { Name = action.NewName };
-            if (s is BaseStep b) return b with { Name = action.NewName };
-            return s;
-        }).ToList();
+        var newSteps = document.Steps
+            .Select(s => s.Id == action.StepId ? s.WithName(action.NewName) : s)
+            .ToList();
 
-        var updatedDocument = document with { Links = document.Links, Steps = newSteps };
+        var updatedDocument = document with { Steps = newSteps };
         return state with { OpenDocuments = state.OpenDocuments.SetItem(action.WorkflowId, updatedDocument) };
     }
 

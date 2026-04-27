@@ -19,4 +19,10 @@ public abstract record WorkflowStep
 
     [JsonPropertyName("position")]
     public CanvasPosition Position { get; init; } = new(0, 0);
+
+    public abstract WorkflowStep WithName(string name);
+
+    public abstract WorkflowStep WithPosition(CanvasPosition position);
+
+    public abstract WorkflowStep CloneWithId(string newId);
 }

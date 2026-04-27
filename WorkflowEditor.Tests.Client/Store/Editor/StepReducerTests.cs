@@ -122,6 +122,23 @@ public class StepReducerTests
     }
 
     [Fact]
+    public void MoveSteps_preserves_SubflowStep_type_and_subflowId()
+    {
+        var doc = Document("wf-1", SubflowStep("s-1", subflowId: "sub-9", x: 0, y: 0));
+        var state = StateWith(doc);
+
+        var next = EditorReducers.ReduceMoveStepsAction(state,
+            new MoveStepsAction("wf-1", new (string, CanvasPosition)[]
+            {
+                ("s-1", new CanvasPosition(50, 60))
+            }));
+
+        var step = next.OpenDocuments["wf-1"].Steps.Single().Should().BeOfType<SubflowStep>().Subject;
+        step.Position.Should().Be(new CanvasPosition(50, 60));
+        step.SubflowId.Should().Be("sub-9");
+    }
+
+    [Fact]
     public void StartEditingStep_sets_editing_id()
     {
         var state = new EditorState();

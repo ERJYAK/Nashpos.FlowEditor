@@ -85,6 +85,29 @@ public class ClipboardReducerTests
     }
 
     [Fact]
+    public void PasteClipboard_preserves_SubflowStep_type_with_new_id()
+    {
+        var original = SubflowStep("orig", "Sub", subflowId: "sub-77", x: 10, y: 20);
+        var doc = Document("wf-1");
+        var state = StateWith(doc) with
+        {
+            Clipboard = new ClipboardPayload(
+                Steps: new WorkflowStep[] { original },
+                Links: Array.Empty<WorkflowLink>(),
+                Origin: new CanvasPosition(10, 20))
+        };
+
+        var next = EditorReducers.ReducePasteClipboardAction(state, new PasteClipboardAction(0, 0));
+
+        var pasted = next.OpenDocuments["wf-1"].Steps.Should().ContainSingle().Subject;
+        var sub = pasted.Should().BeOfType<SubflowStep>().Subject;
+        sub.Id.Should().NotBe("orig");
+        sub.Name.Should().Be("Sub (Copy)");
+        sub.SubflowId.Should().Be("sub-77");
+        sub.Position.Should().Be(new CanvasPosition(0, 0));
+    }
+
+    [Fact]
     public void PasteClipboard_remaps_link_endpoints_to_new_step_ids()
     {
         var s1 = BaseStep("s-1", x: 0, y: 0);
