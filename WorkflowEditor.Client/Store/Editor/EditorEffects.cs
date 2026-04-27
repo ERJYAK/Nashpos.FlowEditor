@@ -89,6 +89,19 @@ public sealed class EditorEffects(IWorkflowApi api, IState<EditorState> state)
             return;
         }
 
+        // Гонка: пока шёл async-fetch, кэш мог быть заполнен через импорт файла
+        // или открытие вкладки. Это не ошибка — отдаём готовые данные.
+        if (state.Value.OpenDocuments.TryGetValue(action.Name, out var open))
+        {
+            dispatcher.Dispatch(new LoadSubflowSuccessAction(action.Name, open.Document));
+            return;
+        }
+        if (state.Value.SubflowCache.TryGetValue(action.Name, out var cached))
+        {
+            dispatcher.Dispatch(new LoadSubflowSuccessAction(action.Name, cached));
+            return;
+        }
+
         var message = result.Outcome switch
         {
             ApiOutcome.NotFound => $"Подпроцесс «{action.Name}» не существует",

@@ -87,6 +87,41 @@ public class EditorEffectsTests
     }
 
     [Fact]
+    public async Task LoadSubflow_falls_back_to_open_document_when_api_returns_NotFound()
+    {
+        // Гонка: пока шёл fetch, открылась вкладка с этим именем (через импорт файла).
+        var doc = EditorTestData.Document("prepare-import", steps: EditorTestData.Base("k"));
+        var initial = EditorReducers.ReduceOpenWorkflowAction(new EditorState(), new OpenWorkflowAction(doc));
+        var (effects, dispatcher, api, _) = Setup(initial);
+        api.GetAsync("prepare-import", Arg.Any<CancellationToken>())
+            .Returns(ApiResult<WorkflowDocument>.NotFound());
+
+        await effects.HandleLoadSubflow(new LoadSubflowAction("prepare-import"), dispatcher);
+
+        dispatcher.Received(1).Dispatch(Arg.Is<LoadSubflowSuccessAction>(a => a.Name == "prepare-import"));
+        dispatcher.DidNotReceive().Dispatch(Arg.Any<LoadSubflowFailedAction>());
+    }
+
+    [Fact]
+    public async Task LoadSubflow_falls_back_to_cached_when_api_returns_NotFound()
+    {
+        var doc = EditorTestData.Document("cached-only", steps: EditorTestData.Base("k"));
+        var initial = new EditorState() with
+        {
+            SubflowCache = new EditorState().SubflowCache.SetItem("cached-only", doc)
+        };
+        var (effects, dispatcher, api, _) = Setup(initial);
+        api.GetAsync("cached-only", Arg.Any<CancellationToken>())
+            .Returns(ApiResult<WorkflowDocument>.NotFound());
+
+        await effects.HandleLoadSubflow(new LoadSubflowAction("cached-only"), dispatcher);
+
+        dispatcher.Received(1).Dispatch(Arg.Is<LoadSubflowSuccessAction>(a =>
+            a.Name == "cached-only" && ReferenceEquals(a.Document, doc)));
+        dispatcher.DidNotReceive().Dispatch(Arg.Any<LoadSubflowFailedAction>());
+    }
+
+    [Fact]
     public Task ImportFileRequested_dispatches_OpenWorkflow_with_filename_as_Name()
     {
         var (effects, dispatcher, _, _) = Setup();

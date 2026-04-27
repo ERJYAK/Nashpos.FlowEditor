@@ -1,5 +1,7 @@
 @inherits FluxorComponent
-@* SubflowName/Description — из state по Node.StepId. Поле SubflowNodeModel.SubflowName удалено. *@
+@* SubflowName/Description — из state по Node.StepId. Шаги subflow рендерятся всегда:
+   приоритет — данные из OpenDocuments[name] (если subflow открыт во вкладке, свежее
+   всего), fallback — SubflowCache (после фонового fetch'а). *@
 
 <div @ondblclick="OpenSubflow" @ondblclick:stopPropagation="true">
 <MudPaper Elevation="4"
@@ -9,10 +11,6 @@
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
             <MudIcon Icon="@Icons.Material.Filled.Lan" Color="Color.Primary" Size="Size.Small" />
             <MudText Typo="Typo.subtitle2" Style="flex-grow: 1;">@(string.IsNullOrEmpty(SubflowName) ? "—" : SubflowName)</MudText>
-            @if (IsRecursive)
-            {
-                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Icon="@Icons.Material.Filled.SyncProblem">recursive</MudChip>
-            }
             <span @ondblclick:stopPropagation="true">
                 <MudIconButton Icon="@Icons.Material.Filled.Edit"
                                Size="Size.Small"
@@ -29,22 +27,9 @@
 
         <MudDivider Class="my-1" />
 
-        @if (IsRecursive)
-        {
-            <MudText Typo="Typo.caption" Color="Color.Warning">
-                Этот шаг ссылается на уже открытый процесс — раскрытие не показано.
-            </MudText>
-        }
-        else if (string.IsNullOrEmpty(SubflowName))
+        @if (string.IsNullOrEmpty(SubflowName))
         {
             <MudText Typo="Typo.caption" Color="Color.Default">Имя подпроцесса не задано</MudText>
-        }
-        else if (State.Value.LoadingSubflows.Contains(SubflowName))
-        {
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-                <MudText Typo="Typo.caption">Загрузка…</MudText>
-            </MudStack>
         }
         else if (CachedSubflow is { } cached)
         {
@@ -55,17 +40,26 @@
             else
             {
                 <MudList T="object" Dense="true" Gutters="false">
-                    @{ var i = 1; }
-                    @foreach (var s in cached.Steps)
+                    @* Индекс объявлен ВНУТРИ for-loop scope — иначе все RenderFragment'ы
+                       MudListItem захватили бы одну общую переменную и показали бы один номер. *@
+                    @for (var i = 0; i < cached.Steps.Count; i++)
                     {
-                        var label = StepLabel(s);
+                        var index = i + 1;
+                        var step = cached.Steps[i];
+                        var label = StepLabel(step);
                         <MudListItem T="object" Class="py-0">
-                            <MudText Typo="Typo.caption">@i. @label</MudText>
+                            <MudText Typo="Typo.caption">@index. @label</MudText>
                         </MudListItem>
-                        i++;
                     }
                 </MudList>
             }
+        }
+        else if (State.Value.LoadingSubflows.Contains(SubflowName))
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                <MudText Typo="Typo.caption">Загрузка…</MudText>
+            </MudStack>
         }
         else
         {
@@ -88,18 +82,22 @@
     [Inject] private IDispatcher Dispatcher { get; set; } = null!;
     [Inject] private IDialogService Dialogs { get; set; } = null!;
 
-    // Какое имя последний раз дёрнули в LoadSubflow. Меняем имя — заново fetch'им
-    // (иначе после rename subflow на «новое» имя без открытой вкладки кэш не появится).
-    private string? _lastFetchedName;
-
     private string? SubflowName => CurrentStep<SubflowStep>()?.SubflowName;
     private string Description => CurrentStep<WorkflowStep>()?.Description ?? string.Empty;
 
-    private bool IsRecursive => !string.IsNullOrEmpty(SubflowName)
-        && State.Value.OpenDocuments.ContainsKey(SubflowName);
-
-    private WorkflowDocument? CachedSubflow =>
-        SubflowName is { Length: > 0 } name && State.Value.SubflowCache.TryGetValue(name, out var d) ? d : null;
+    // Свежее всего: если subflow открыт как вкладка — берём напрямую из OpenDocuments;
+    // иначе — последний результат фонового fetch'а из SubflowCache.
+    private WorkflowDocument? CachedSubflow
+    {
+        get
+        {
+            var name = SubflowName;
+            if (string.IsNullOrEmpty(name)) return null;
+            if (State.Value.OpenDocuments.TryGetValue(name, out var open))
+                return open.Document;
+            return State.Value.SubflowCache.TryGetValue(name, out var cached) ? cached : null;
+        }
+    }
 
     private string CardClass
     {
@@ -124,19 +122,17 @@
     protected override void OnParametersSet()
     {
         base.OnParametersSet();
-
-        var current = SubflowName;
-        if (current == _lastFetchedName) return;
-
-        _lastFetchedName = current;
         TryFetch();
     }
 
+    // Идемпотентен: безопасно вызывать на каждый pere-render. Не дёргает API во время
+    // batch-импорта (импортируемые файлы могут заполнить кэш сами — нет смысла спекулировать).
     private void TryFetch()
     {
         var name = SubflowName;
         if (string.IsNullOrEmpty(name)) return;
-        if (IsRecursive) return;
+        if (State.Value.PendingImports > 0) return;
+        if (State.Value.OpenDocuments.ContainsKey(name)) return;
         if (State.Value.SubflowCache.ContainsKey(name)) return;
         if (State.Value.LoadingSubflows.Contains(name)) return;
 
