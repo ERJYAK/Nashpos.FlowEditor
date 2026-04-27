@@ -2,8 +2,8 @@
 
 @inject IState<EditorState> EditorState
 @inject IDispatcher Dispatcher
+@inject IDialogService Dialogs
 
-@* Урезанное контекстное меню. Полный copy/paste/edit-flow вернётся на этапе E. *@
 @if (IsOpen)
 {
     <div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9998;"
@@ -13,13 +13,30 @@
     </div>
 
     <div style="position: fixed; top: @(Y)px; left: @(X)px; z-index: 9999;">
-        <MudPaper Elevation="8" Class="py-1" Style="min-width: 180px;">
+        <MudPaper Elevation="8" Class="py-1" Style="min-width: 220px;">
             <MudMenuItem OnClick="OnAddBaseStep" Disabled="@(EditorState.Value.ActiveDocumentName is null)">
                 Добавить базовый шаг
             </MudMenuItem>
             <MudMenuItem OnClick="OnAddSubflowStep" Disabled="@(EditorState.Value.ActiveDocumentName is null)">
                 Добавить шаг subflow
             </MudMenuItem>
+            <MudDivider />
+            <MudMenuItem OnClick="OnCopy" Disabled="@(!CanCopy)">
+                Копировать (Ctrl+C)
+            </MudMenuItem>
+            <MudMenuItem OnClick="OnPaste" Disabled="@(!CanPaste)">
+                Вставить (Ctrl+V)
+            </MudMenuItem>
+            @if (SelectedSubflow is not null)
+            {
+                <MudDivider />
+                <MudMenuItem OnClick="OnRenameSubflow">
+                    Переименовать подпроцесс…
+                </MudMenuItem>
+                <MudMenuItem OnClick="OnGoToSubflow">
+                    Перейти к subflow
+                </MudMenuItem>
+            }
             <MudDivider />
             <MudMenuItem OnClick="OnDelete" Disabled="@(_selection.Count == 0)">
                 Удалить выделенное
@@ -35,6 +52,22 @@
     private double _addAtX;
     private double _addAtY;
     private IReadOnlyList<SelectableModel> _selection = Array.Empty<SelectableModel>();
+
+    private bool CanCopy => EditorState.Value.ActiveDocumentName is not null
+                            && _selection.OfType<WorkflowNodeModel>().Any();
+
+    private bool CanPaste => EditorState.Value.ActiveDocumentName is not null
+                             && EditorState.Value.Clipboard is not null;
+
+    // Subflow-only пункты появляются если выделен ровно один subflow-узел.
+    private SubflowNodeModel? SelectedSubflow
+    {
+        get
+        {
+            var subflows = _selection.OfType<SubflowNodeModel>().ToList();
+            return subflows.Count == 1 ? subflows[0] : null;
+        }
+    }
 
     public void Open(double screenX, double screenY, IReadOnlyList<SelectableModel> selection,
                      double canvasX, double canvasY)
@@ -77,6 +110,27 @@
         CloseMenu();
     }
 
+    private void OnCopy()
+    {
+        var name = EditorState.Value.ActiveDocumentName;
+        if (name is null) { CloseMenu(); return; }
+
+        var stepIds = _selection.OfType<WorkflowNodeModel>().Select(n => n.StepId).ToList();
+        if (stepIds.Count > 0)
+            Dispatcher.Dispatch(new CopySelectionAction(name, stepIds));
+
+        CloseMenu();
+    }
+
+    private void OnPaste()
+    {
+        var name = EditorState.Value.ActiveDocumentName;
+        if (name is null || EditorState.Value.Clipboard is null) { CloseMenu(); return; }
+
+        Dispatcher.Dispatch(new PasteClipboardAction(name, _addAtX, _addAtY));
+        CloseMenu();
+    }
+
     private void OnDelete()
     {
         var name = EditorState.Value.ActiveDocumentName;
@@ -90,6 +144,52 @@
         if (stepIds.Count > 0)
             Dispatcher.Dispatch(new RemoveStepsAction(name, stepIds));
 
+        CloseMenu();
+    }
+
+    private async Task OnRenameSubflow()
+    {
+        var docName = EditorState.Value.ActiveDocumentName;
+        var subflow = SelectedSubflow;
+        if (docName is null || subflow is null) { CloseMenu(); return; }
+
+        // Закрываем меню сразу — диалоги отрисуются поверх.
+        CloseMenu();
+
+        var nameParams = new DialogParameters
+        {
+            { nameof(NameDialog.Title), "Переименовать подпроцесс" },
+            { nameof(NameDialog.Label), "Новое имя" },
+            { nameof(NameDialog.SubmitLabel), "Переименовать" }
+        };
+        var nameDialog = await Dialogs.ShowAsync<NameDialog>("Переименовать подпроцесс", nameParams);
+        var nameResult = await nameDialog.Result;
+        if (nameResult is null || nameResult.Canceled) return;
+        var newName = (string)nameResult.Data!;
+
+        var confirmParams = new DialogParameters
+        {
+            { nameof(ConfirmDialog.Message), "Переименовать все соответствующие элементы?" }
+        };
+        var confirmDialog = await Dialogs.ShowAsync<ConfirmDialog>("Каскадное переименование", confirmParams);
+        var confirmResult = await confirmDialog.Result;
+        if (confirmResult is null || confirmResult.Canceled) return;
+        var cascade = confirmResult.Data is true;
+
+        Dispatcher.Dispatch(new RenameSubflowRequestedAction(docName, subflow.StepId, newName, cascade));
+    }
+
+    private void OnGoToSubflow()
+    {
+        var subflow = SelectedSubflow;
+        var docName = EditorState.Value.ActiveDocumentName;
+        if (subflow is null || docName is null) { CloseMenu(); return; }
+
+        if (!EditorState.Value.OpenDocuments.TryGetValue(docName, out var editor)) { CloseMenu(); return; }
+        var step = editor.Document.Steps.OfType<SubflowStep>().FirstOrDefault(s => s.Id == subflow.StepId);
+        if (step is null || string.IsNullOrEmpty(step.SubflowName)) { CloseMenu(); return; }
+
+        Dispatcher.Dispatch(new OpenSubflowAction(step.SubflowName));
         CloseMenu();
     }
 }

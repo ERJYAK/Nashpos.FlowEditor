@@ -34,6 +34,22 @@ public sealed record EditorState
     public ImmutableDictionary<string, ImmutableStack<EditorDocument>> RedoStacks { get; init; } =
         ImmutableDictionary<string, ImmutableStack<EditorDocument>>.Empty;
 
+    // Буфер обмена (in-session). Не уезжает на сервер, не персистится.
+    public ClipboardPayload? Clipboard { get; init; }
+
+    // Сколько файлов batch-импорта ещё в обработке. Пока > 0, MainLayout
+    // подавляет subflow-not-found snackbar (следующий файл может оказаться искомым subflow).
+    public int PendingImports { get; init; }
+
+    // Невалидные узлы по документу (для красной обводки). Очищаются на любой mutation
+    // через WithMutation — после правки граф снова считается валидным до следующего save.
+    public ImmutableDictionary<string, ImmutableHashSet<string>> InvalidStepIds { get; init; } =
+        ImmutableDictionary<string, ImmutableHashSet<string>>.Empty;
+
+    // Порядок вкладок (приоритет над OrderBy в Editor). Ключи синхронизируются с
+    // OpenDocuments через ReduceOpenWorkflowAction / ReduceCloseTabAction.
+    public ImmutableList<string> TabOrder { get; init; } = ImmutableList<string>.Empty;
+
     public bool IsDirty(string name) => DirtyDocuments.Contains(name);
 
     public bool CanUndo(string name) =>
@@ -41,6 +57,9 @@ public sealed record EditorState
 
     public bool CanRedo(string name) =>
         RedoStacks.TryGetValue(name, out var stack) && !stack.IsEmpty;
+
+    public ImmutableHashSet<string> InvalidStepsFor(string name) =>
+        InvalidStepIds.GetValueOrDefault(name, ImmutableHashSet<string>.Empty);
 }
 
 // Открытый в редакторе документ: бизнес-данные + UI-only слой (визуальные связи + позиции узлов).
@@ -62,3 +81,11 @@ public sealed record EditorLink
     public required string SourceStepId { get; init; }
     public required string TargetStepId { get; init; }
 }
+
+// Снимок выделенных узлов и их внутренних связей. Origin = bounding-box top-left:
+// при вставке клон шага получает позицию (cursor.X + (oldPos.X - origin.X), …).
+public sealed record ClipboardPayload(
+    ImmutableList<WorkflowStep> Steps,
+    ImmutableList<EditorLink> Links,
+    ImmutableDictionary<string, CanvasPosition> Positions,
+    CanvasPosition Origin);

@@ -1,7 +1,11 @@
-// Минимальная обёртка над HTML5 drag-drop. .NET-сторона:
+// Минимальная обёртка над HTML5 drag-drop с поддержкой multi-file.
+// .NET-сторона:
 //   await JS.InvokeVoidAsync("fileDrop.attach", elementId, DotNetObjectReference.Create(this));
-// Метод [JSInvokable("OnFileDropped")] async Task OnFileDropped(string name, string text)
-// получает имя и содержимое файла. Очистка — fileDrop.detach(elementId).
+// Методы [JSInvokable]:
+//   OnBatchStart(int count)   — перед обработкой набора файлов;
+//   OnFileDropped(string name, string text) — для каждого файла;
+//   OnFileDropFailed(string name, string error) — при ошибке чтения файла.
+// Очистка: fileDrop.detach(elementId).
 window.fileDrop = {
     _handlers: new Map(),
 
@@ -10,15 +14,23 @@ window.fileDrop = {
         if (!el) return;
 
         const onDragOver = e => { e.preventDefault(); };
+
         const onDrop = async e => {
             e.preventDefault();
-            const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-            if (!file) return;
+            const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+            if (files.length === 0) return;
+
             try {
-                const text = await file.text();
-                await dotnetRef.invokeMethodAsync('OnFileDropped', file.name, text);
-            } catch (err) {
-                await dotnetRef.invokeMethodAsync('OnFileDropFailed', file.name, String(err));
+                await dotnetRef.invokeMethodAsync('OnBatchStart', files.length);
+            } catch { /* окно могло закрыться */ }
+
+            for (const file of files) {
+                try {
+                    const text = await file.text();
+                    await dotnetRef.invokeMethodAsync('OnFileDropped', file.name, text);
+                } catch (err) {
+                    await dotnetRef.invokeMethodAsync('OnFileDropFailed', file.name, String(err));
+                }
             }
         };
 

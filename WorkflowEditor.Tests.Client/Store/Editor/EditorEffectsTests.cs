@@ -123,4 +123,42 @@ public class EditorEffectsTests
             .ContinueWith(_ => dispatcher.Received(1).Dispatch(Arg.Is<OpenWorkflowAction>(a =>
                 a.Document.Name == "new-flow" && a.Document.Steps.Count == 0)));
     }
+
+    [Fact]
+    public async Task RenameWorkflowRequested_dispatches_RenameAction_when_target_is_free()
+    {
+        var (effects, dispatcher, _, _) = Setup();
+
+        await effects.HandleRenameWorkflowRequested(
+            new RenameWorkflowRequestedAction("a", "b", CascadeSubflows: false), dispatcher);
+
+        dispatcher.Received(1).Dispatch(Arg.Is<RenameWorkflowAction>(a =>
+            a.OldName == "a" && a.NewName == "b" && a.CascadeSubflows == false));
+        dispatcher.DidNotReceive().Dispatch(Arg.Any<RenameWorkflowFailedAction>());
+    }
+
+    [Fact]
+    public async Task RenameWorkflowRequested_fails_on_conflict()
+    {
+        var initial = EditorReducers.ReduceOpenWorkflowAction(new EditorState(),
+            new OpenWorkflowAction(EditorTestData.Document("import-prices", steps: EditorTestData.Base("k"))));
+        var (effects, dispatcher, _, _) = Setup(initial);
+
+        await effects.HandleRenameWorkflowRequested(
+            new RenameWorkflowRequestedAction("import", "import-prices", CascadeSubflows: true), dispatcher);
+
+        dispatcher.Received(1).Dispatch(Arg.Is<RenameWorkflowFailedAction>(a => a.NewName == "import-prices"));
+        dispatcher.DidNotReceive().Dispatch(Arg.Any<RenameWorkflowAction>());
+    }
+
+    [Fact]
+    public async Task RenameWorkflowRequested_fails_on_invalid_name()
+    {
+        var (effects, dispatcher, _, _) = Setup();
+
+        await effects.HandleRenameWorkflowRequested(
+            new RenameWorkflowRequestedAction("a", "Bad Name!", CascadeSubflows: false), dispatcher);
+
+        dispatcher.Received(1).Dispatch(Arg.Is<RenameWorkflowFailedAction>(a => a.NewName == "Bad Name!"));
+    }
 }

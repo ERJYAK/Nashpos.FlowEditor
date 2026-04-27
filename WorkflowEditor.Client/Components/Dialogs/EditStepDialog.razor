@@ -1,0 +1,64 @@
+@* Диалог редактирования шага. Универсальный — два набора полей по типу шага.
+   Возвращает в DialogResult.Data анонимный объект `(string KindOrName, string Description)`. *@
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2" Style="min-width: 360px;">
+            @if (Step is BaseStep)
+            {
+                <MudTextField @bind-Value="_kindOrName"
+                              Label="Тип обработчика (StepKind)"
+                              Variant="Variant.Outlined"
+                              AutoFocus="true"
+                              Immediate="true"
+                              HelperText="Имя зарегистрированной реализации (например, download-package)" />
+            }
+            else if (Step is SubflowStep)
+            {
+                <MudTextField @bind-Value="_kindOrName"
+                              Label="Имя подпроцесса (SubflowName)"
+                              Variant="Variant.Outlined"
+                              AutoFocus="true"
+                              Immediate="true"
+                              HelperText="Имя другого workflow (без .json), например prepare-import" />
+            }
+
+            <MudTextField @bind-Value="_description"
+                          Label="Описание"
+                          Variant="Variant.Outlined"
+                          Lines="3"
+                          Immediate="true" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Отмена</MudButton>
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   OnClick="Submit">Сохранить</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+    [Parameter] public WorkflowStep Step { get; set; } = null!;
+
+    private string _kindOrName = string.Empty;
+    private string _description = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        _description = Step.Description;
+        _kindOrName = Step switch
+        {
+            BaseStep b => b.StepKind,
+            SubflowStep s => s.SubflowName,
+            _ => string.Empty
+        };
+    }
+
+    private void Cancel() => Dialog.Cancel();
+
+    private void Submit() => Dialog.Close(DialogResult.Ok(new EditStepResult(_kindOrName.Trim(), _description.Trim())));
+
+    public record EditStepResult(string KindOrName, string Description);
+}

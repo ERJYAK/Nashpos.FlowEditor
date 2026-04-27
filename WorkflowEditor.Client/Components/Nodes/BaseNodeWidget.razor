@@ -1,38 +1,70 @@
 @inherits FluxorComponent
-@* Базовый узел: показываем `StepKind` (тип реализации) и `Description`.
-   Полноценное редактирование выйдет на этапе E (через PropertiesPanel). *@
+@* Все отображаемые поля (StepKind, Description) читаются из state по Node.StepId,
+   иначе после редактирования виджет показывает stale-данные NodeModel. *@
 
-<MudPaper Elevation="4"
-          Class="@(Node.Selected ? "pa-3 selected-node" : "pa-3")"
-          Style="min-width: 220px; cursor: pointer; position: relative; overflow: visible;">
-    <MudStack Spacing="0">
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-            <MudIcon Icon="@Icons.Material.Filled.Settings" Color="Color.Success" Size="Size.Small" />
-            <MudText Typo="Typo.subtitle2">@(string.IsNullOrEmpty(Node.StepKind) ? "—" : Node.StepKind)</MudText>
+<div @ondblclick="OpenEdit" @ondblclick:stopPropagation="true">
+    <MudPaper Elevation="4"
+              Class="@CardClass"
+              Style="min-width: 220px; cursor: pointer; position: relative; overflow: visible;">
+        <MudStack Spacing="0">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIcon Icon="@Icons.Material.Filled.Settings" Color="Color.Success" Size="Size.Small" />
+                <MudText Typo="Typo.subtitle2">@(string.IsNullOrEmpty(StepKind) ? "—" : StepKind)</MudText>
+            </MudStack>
+            <MudText Typo="Typo.caption" Color="Color.Default">@Description</MudText>
         </MudStack>
-        <MudText Typo="Typo.caption" Color="Color.Default">@Description</MudText>
-    </MudStack>
 
-    @foreach (var port in Node.Ports)
-    {
-        <PortRenderer Port="port" />
-    }
-</MudPaper>
+        @foreach (var port in Node.Ports)
+        {
+            <PortRenderer Port="port" />
+        }
+    </MudPaper>
+</div>
 
 @code {
     [Parameter] public BaseNodeModel Node { get; set; } = null!;
     [Inject] private IState<EditorState> State { get; set; } = null!;
+    [Inject] private IDispatcher Dispatcher { get; set; } = null!;
+    [Inject] private IDialogService Dialogs { get; set; } = null!;
 
-    private string Description
+    private string? StepKind => CurrentStep<BaseStep>()?.StepKind;
+    private string Description => CurrentStep<WorkflowStep>()?.Description ?? string.Empty;
+
+    private string CardClass
     {
         get
         {
+            var classes = new List<string> { "pa-3" };
+            if (Node.Selected) classes.Add("selected-node");
             var name = State.Value.ActiveDocumentName;
-            if (name is null || !State.Value.OpenDocuments.TryGetValue(name, out var editor))
-                return Node.Title ?? string.Empty;
-
-            var step = editor.Document.Steps.FirstOrDefault(s => s.Id == Node.StepId);
-            return step?.Description ?? Node.Title ?? string.Empty;
+            if (name is not null && State.Value.InvalidStepsFor(name).Contains(Node.StepId))
+                classes.Add("invalid-node");
+            return string.Join(' ', classes);
         }
+    }
+
+    private T? CurrentStep<T>() where T : WorkflowStep
+    {
+        var name = State.Value.ActiveDocumentName;
+        if (name is null || !State.Value.OpenDocuments.TryGetValue(name, out var editor)) return null;
+        return editor.Document.Steps.OfType<T>().FirstOrDefault(s => s.Id == Node.StepId);
+    }
+
+    private async Task OpenEdit()
+    {
+        var docName = State.Value.ActiveDocumentName;
+        if (docName is null) return;
+        var step = CurrentStep<WorkflowStep>();
+        if (step is null) return;
+
+        var parameters = new DialogParameters { { nameof(EditStepDialog.Step), step } };
+        var dialog = await Dialogs.ShowAsync<EditStepDialog>("Редактирование шага", parameters);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not EditStepDialog.EditStepResult edit) return;
+
+        if (step is BaseStep b && b.StepKind != edit.KindOrName)
+            Dispatcher.Dispatch(new UpdateBaseStepKindAction(docName, step.Id, edit.KindOrName));
+        if (step.Description != edit.Description)
+            Dispatcher.Dispatch(new UpdateStepDescriptionAction(docName, step.Id, edit.Description));
     }
 }

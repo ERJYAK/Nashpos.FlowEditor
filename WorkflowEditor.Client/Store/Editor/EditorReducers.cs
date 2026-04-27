@@ -22,7 +22,16 @@ public static class EditorReducers
             ActiveDocumentName = action.Document.Name,
             DirtyDocuments = state.DirtyDocuments.Remove(action.Document.Name),
             UndoStacks = state.UndoStacks.Remove(action.Document.Name),
-            RedoStacks = state.RedoStacks.Remove(action.Document.Name)
+            RedoStacks = state.RedoStacks.Remove(action.Document.Name),
+            // Любой импорт/открытие — также свежий source для всех subflow-узлов с этим именем.
+            SubflowCache = state.SubflowCache.SetItem(action.Document.Name, action.Document),
+            // Если открытие пришло из batch-импорта — счётчик батча декрементируется.
+            PendingImports = Math.Max(0, state.PendingImports - 1),
+            // Очистить инвалидные пометки и добавить в порядок вкладок (если ещё нет).
+            InvalidStepIds = state.InvalidStepIds.Remove(action.Document.Name),
+            TabOrder = state.TabOrder.Contains(action.Document.Name)
+                ? state.TabOrder
+                : state.TabOrder.Add(action.Document.Name)
         };
     }
 
@@ -36,8 +45,9 @@ public static class EditorReducers
         if (!state.OpenDocuments.ContainsKey(action.Name)) return state;
 
         var remaining = state.OpenDocuments.Remove(action.Name);
+        var newOrder = state.TabOrder.Remove(action.Name);
         var nextActive = state.ActiveDocumentName == action.Name
-            ? remaining.Keys.FirstOrDefault()
+            ? newOrder.FirstOrDefault() ?? remaining.Keys.FirstOrDefault()
             : state.ActiveDocumentName;
 
         return state with
@@ -46,7 +56,9 @@ public static class EditorReducers
             ActiveDocumentName = nextActive,
             DirtyDocuments = state.DirtyDocuments.Remove(action.Name),
             UndoStacks = state.UndoStacks.Remove(action.Name),
-            RedoStacks = state.RedoStacks.Remove(action.Name)
+            RedoStacks = state.RedoStacks.Remove(action.Name),
+            InvalidStepIds = state.InvalidStepIds.Remove(action.Name),
+            TabOrder = newOrder
         };
     }
 
@@ -67,7 +79,12 @@ public static class EditorReducers
             ActiveDocumentName = action.Document.Name,
             DirtyDocuments = state.DirtyDocuments.Remove(action.Document.Name),
             UndoStacks = state.UndoStacks.Remove(action.Document.Name),
-            RedoStacks = state.RedoStacks.Remove(action.Document.Name)
+            RedoStacks = state.RedoStacks.Remove(action.Document.Name),
+            SubflowCache = state.SubflowCache.SetItem(action.Document.Name, action.Document),
+            InvalidStepIds = state.InvalidStepIds.Remove(action.Document.Name),
+            TabOrder = state.TabOrder.Contains(action.Document.Name)
+                ? state.TabOrder
+                : state.TabOrder.Add(action.Document.Name)
         };
     }
 
@@ -198,6 +215,95 @@ public static class EditorReducers
         return state.WithMutation(action.Name, editor with { Links = newLinks });
     }
 
+    // --- Copy / Paste ----------------------------------------------------------
+
+    [ReducerMethod]
+    public static EditorState ReduceCopySelectionAction(EditorState state, CopySelectionAction action)
+    {
+        if (action.StepIds.Count == 0) return state;
+        if (!state.OpenDocuments.TryGetValue(action.Name, out var editor)) return state;
+
+        var idSet = action.StepIds.ToHashSet();
+        var copiedSteps = editor.Document.Steps.Where(s => idSet.Contains(s.Id)).ToImmutableList();
+        if (copiedSteps.Count == 0) return state;
+
+        // Только внутренние связи (где обе стороны выделены).
+        var copiedLinks = editor.Links.Values
+            .Where(l => idSet.Contains(l.SourceStepId) && idSet.Contains(l.TargetStepId))
+            .ToImmutableList();
+
+        var positions = copiedSteps
+            .Select(s => (s.Id, Pos: editor.NodePositions.GetValueOrDefault(s.Id, new CanvasPosition(0, 0))))
+            .ToImmutableDictionary(t => t.Id, t => t.Pos);
+
+        var origin = new CanvasPosition(
+            positions.Values.Min(p => p.X),
+            positions.Values.Min(p => p.Y));
+
+        return state with { Clipboard = new ClipboardPayload(copiedSteps, copiedLinks, positions, origin) };
+    }
+
+    [ReducerMethod]
+    public static EditorState ReducePasteClipboardAction(EditorState state, PasteClipboardAction action)
+    {
+        if (state.Clipboard is not { } clip) return state;
+        if (clip.Steps.Count == 0) return state;
+        if (!state.OpenDocuments.TryGetValue(action.Name, out var editor)) return state;
+
+        // old Id → new step (с новым Id, через CloneAsNew).
+        var idMap = new Dictionary<string, WorkflowStep>(clip.Steps.Count);
+        var positionsBuilder = editor.NodePositions.ToBuilder();
+        var stepsBuilder = editor.Document.Steps.ToBuilder();
+
+        foreach (var oldStep in clip.Steps)
+        {
+            var newStep = oldStep.CloneAsNew();
+            idMap[oldStep.Id] = newStep;
+            stepsBuilder.Add(newStep);
+
+            var oldPos = clip.Positions.GetValueOrDefault(oldStep.Id, new CanvasPosition(0, 0));
+            var newPos = new CanvasPosition(
+                action.CanvasX + (oldPos.X - clip.Origin.X),
+                action.CanvasY + (oldPos.Y - clip.Origin.Y));
+            positionsBuilder[newStep.Id] = newPos;
+        }
+
+        var linksBuilder = editor.Links.ToBuilder();
+        foreach (var oldLink in clip.Links)
+        {
+            if (!idMap.TryGetValue(oldLink.SourceStepId, out var newSrc)) continue;
+            if (!idMap.TryGetValue(oldLink.TargetStepId, out var newTgt)) continue;
+
+            var newId = Guid.NewGuid().ToString();
+            linksBuilder[newId] = new EditorLink
+            {
+                Id = newId,
+                SourceStepId = newSrc.Id,
+                TargetStepId = newTgt.Id
+            };
+        }
+
+        var updated = editor with
+        {
+            Document = editor.Document with { Steps = stepsBuilder.ToImmutable() },
+            Links = linksBuilder.ToImmutable(),
+            NodePositions = positionsBuilder.ToImmutable()
+        };
+        return state.WithMutation(action.Name, updated);
+    }
+
+    // --- Batch-импорт ---------------------------------------------------------
+
+    [ReducerMethod]
+    public static EditorState ReduceBatchImportStartedAction(EditorState state, BatchImportStartedAction action) =>
+        state with { PendingImports = state.PendingImports + Math.Max(0, action.Count) };
+
+    // ImportFileFailed декрементит счётчик (файл обработан с ошибкой);
+    // ReduceOpenWorkflowAction делает то же при успешном импорте.
+    [ReducerMethod]
+    public static EditorState ReduceImportFileFailedAction(EditorState state, ImportFileFailedAction _) =>
+        state with { PendingImports = Math.Max(0, state.PendingImports - 1) };
+
     // --- Properties-панель -----------------------------------------------------
 
     [ReducerMethod]
@@ -245,6 +351,130 @@ public static class EditorReducers
             RedoStacks = newRedo.IsEmpty ? state.RedoStacks.Remove(action.Name) : state.RedoStacks.SetItem(action.Name, newRedo),
             UndoStacks = state.UndoStacks.SetItem(action.Name, undo.Push(current)),
             DirtyDocuments = state.DirtyDocuments.Add(action.Name)
+        };
+    }
+
+    // --- Reorder / Rename / Validation ----------------------------------------
+
+    [ReducerMethod]
+    public static EditorState ReduceReorderTabsAction(EditorState state, ReorderTabsAction action)
+    {
+        // Берём только имена, которые реально открыты — игнорируем мусор от JS.
+        var sanitized = action.NewOrder
+            .Where(state.OpenDocuments.ContainsKey)
+            .Distinct()
+            .ToImmutableList();
+        // Дописываем «забытые» открытые имена в конец, чтобы порядок остался полным.
+        foreach (var existing in state.OpenDocuments.Keys)
+            if (!sanitized.Contains(existing)) sanitized = sanitized.Add(existing);
+        return state with { TabOrder = sanitized };
+    }
+
+    [ReducerMethod]
+    public static EditorState ReduceMarkInvalidStepsAction(EditorState state, MarkInvalidStepsAction action)
+    {
+        var set = action.StepIds.ToImmutableHashSet();
+        return state with { InvalidStepIds = state.InvalidStepIds.SetItem(action.Name, set) };
+    }
+
+    [ReducerMethod]
+    public static EditorState ReduceClearInvalidStepsAction(EditorState state, ClearInvalidStepsAction action) =>
+        state with { InvalidStepIds = state.InvalidStepIds.Remove(action.Name) };
+
+    [ReducerMethod]
+    public static EditorState ReduceCascadeRenameSubflowReferencesAction(
+        EditorState state, CascadeRenameSubflowReferencesAction action)
+    {
+        if (action.OldSubflowName == action.NewSubflowName) return state;
+
+        var docsBuilder = state.OpenDocuments.ToBuilder();
+        foreach (var (name, editor) in state.OpenDocuments)
+        {
+            var changed = false;
+            var newSteps = editor.Document.Steps;
+            for (var i = 0; i < newSteps.Count; i++)
+            {
+                if (newSteps[i] is SubflowStep s && s.SubflowName == action.OldSubflowName)
+                {
+                    newSteps = newSteps.SetItem(i, s.WithSubflowName(action.NewSubflowName));
+                    changed = true;
+                }
+            }
+            if (changed)
+                docsBuilder[name] = editor with { Document = editor.Document with { Steps = newSteps } };
+        }
+        return state with { OpenDocuments = docsBuilder.ToImmutable() };
+    }
+
+    [ReducerMethod]
+    public static EditorState ReduceRenameWorkflowAction(EditorState state, RenameWorkflowAction action)
+    {
+        if (action.OldName == action.NewName) return state;
+        if (!state.OpenDocuments.TryGetValue(action.OldName, out var oldEditor)) return state;
+        if (state.OpenDocuments.ContainsKey(action.NewName)) return state; // конфликт ловит effect
+
+        // 1. Перенос самой записи под новый ключ + смена Document.Name.
+        var renamedDoc = oldEditor.Document with { Name = action.NewName };
+        var renamedEditor = oldEditor with { Document = renamedDoc };
+        var openDocs = state.OpenDocuments.Remove(action.OldName).SetItem(action.NewName, renamedEditor);
+
+        var dirty = state.DirtyDocuments.Contains(action.OldName)
+            ? state.DirtyDocuments.Remove(action.OldName).Add(action.NewName)
+            : state.DirtyDocuments;
+
+        var undo = state.UndoStacks.TryGetValue(action.OldName, out var undoStack)
+            ? state.UndoStacks.Remove(action.OldName).SetItem(action.NewName, undoStack)
+            : state.UndoStacks;
+        var redo = state.RedoStacks.TryGetValue(action.OldName, out var redoStack)
+            ? state.RedoStacks.Remove(action.OldName).SetItem(action.NewName, redoStack)
+            : state.RedoStacks;
+
+        var subflowCache = state.SubflowCache;
+        if (subflowCache.TryGetValue(action.OldName, out var cached))
+            subflowCache = subflowCache.Remove(action.OldName)
+                                       .SetItem(action.NewName, cached with { Name = action.NewName });
+
+        var invalid = state.InvalidStepIds.TryGetValue(action.OldName, out var invalidSet)
+            ? state.InvalidStepIds.Remove(action.OldName).SetItem(action.NewName, invalidSet)
+            : state.InvalidStepIds;
+
+        var tabOrder = state.TabOrder.Replace(action.OldName, action.NewName);
+        var active = state.ActiveDocumentName == action.OldName ? action.NewName : state.ActiveDocumentName;
+
+        // 2. Cascade: переименовать ВСЕ SubflowStep с OldName на NewName во всех документах.
+        if (action.CascadeSubflows)
+        {
+            var docsBuilder = openDocs.ToBuilder();
+            foreach (var (name, editor) in openDocs)
+            {
+                var changed = false;
+                var newSteps = editor.Document.Steps;
+                for (var i = 0; i < newSteps.Count; i++)
+                {
+                    if (newSteps[i] is SubflowStep s && s.SubflowName == action.OldName)
+                    {
+                        newSteps = newSteps.SetItem(i, s.WithSubflowName(action.NewName));
+                        changed = true;
+                    }
+                }
+                if (changed)
+                {
+                    docsBuilder[name] = editor with { Document = editor.Document with { Steps = newSteps } };
+                }
+            }
+            openDocs = docsBuilder.ToImmutable();
+        }
+
+        return state with
+        {
+            OpenDocuments = openDocs,
+            ActiveDocumentName = active,
+            DirtyDocuments = dirty,
+            UndoStacks = undo,
+            RedoStacks = redo,
+            SubflowCache = subflowCache,
+            InvalidStepIds = invalid,
+            TabOrder = tabOrder
         };
     }
 
@@ -298,7 +528,10 @@ public static class EditorReducers
             OpenDocuments = state.OpenDocuments.SetItem(name, updated),
             DirtyDocuments = state.DirtyDocuments.Add(name),
             UndoStacks = state.UndoStacks.SetItem(name, newUndo),
-            RedoStacks = state.RedoStacks.Remove(name)
+            RedoStacks = state.RedoStacks.Remove(name),
+            // Любая правка обнуляет ранее зафиксированный набор невалидных узлов —
+            // граф снова считается потенциально валидным до следующего save.
+            InvalidStepIds = state.InvalidStepIds.Remove(name)
         };
     }
 

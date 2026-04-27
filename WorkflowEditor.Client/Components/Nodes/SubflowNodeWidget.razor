@@ -1,17 +1,25 @@
 @inherits FluxorComponent
+@* SubflowName/Description — из state по Node.StepId. Поле SubflowNodeModel.SubflowName удалено. *@
 
+<div @ondblclick="OpenSubflow" @ondblclick:stopPropagation="true">
 <MudPaper Elevation="4"
-          Class="@(Node.Selected ? "pa-3 selected-node" : "pa-3")"
-          Style="min-width: 260px; max-width: 360px; cursor: pointer; position: relative; overflow: visible;"
-          @ondblclick="OpenSubflow">
+          Class="@CardClass"
+          Style="min-width: 260px; max-width: 360px; cursor: pointer; position: relative; overflow: visible;">
     <MudStack Spacing="1">
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
             <MudIcon Icon="@Icons.Material.Filled.Lan" Color="Color.Primary" Size="Size.Small" />
-            <MudText Typo="Typo.subtitle2">@(string.IsNullOrEmpty(Node.SubflowName) ? "—" : Node.SubflowName)</MudText>
+            <MudText Typo="Typo.subtitle2" Style="flex-grow: 1;">@(string.IsNullOrEmpty(SubflowName) ? "—" : SubflowName)</MudText>
             @if (IsRecursive)
             {
                 <MudChip T="string" Size="Size.Small" Color="Color.Warning" Icon="@Icons.Material.Filled.SyncProblem">recursive</MudChip>
             }
+            <span @ondblclick:stopPropagation="true">
+                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                               Size="Size.Small"
+                               Color="Color.Default"
+                               OnClick="OpenEdit"
+                               title="Редактировать имя/описание" />
+            </span>
         </MudStack>
 
         @if (!string.IsNullOrEmpty(Description))
@@ -27,11 +35,11 @@
                 Этот шаг ссылается на уже открытый процесс — раскрытие не показано.
             </MudText>
         }
-        else if (string.IsNullOrEmpty(Node.SubflowName))
+        else if (string.IsNullOrEmpty(SubflowName))
         {
             <MudText Typo="Typo.caption" Color="Color.Default">Имя подпроцесса не задано</MudText>
         }
-        else if (State.Value.LoadingSubflows.Contains(Node.SubflowName))
+        else if (State.Value.LoadingSubflows.Contains(SubflowName))
         {
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                 <MudProgressCircular Size="Size.Small" Indeterminate="true" />
@@ -72,55 +80,91 @@
         <PortRenderer Port="port" />
     }
 </MudPaper>
+</div>
 
 @code {
     [Parameter] public SubflowNodeModel Node { get; set; } = null!;
     [Inject] private IState<EditorState> State { get; set; } = null!;
     [Inject] private IDispatcher Dispatcher { get; set; } = null!;
+    [Inject] private IDialogService Dialogs { get; set; } = null!;
 
-    private bool _hasRequestedFetch;
+    // Какое имя последний раз дёрнули в LoadSubflow. Меняем имя — заново fetch'им
+    // (иначе после rename subflow на «новое» имя без открытой вкладки кэш не появится).
+    private string? _lastFetchedName;
 
-    private string Description
+    private string? SubflowName => CurrentStep<SubflowStep>()?.SubflowName;
+    private string Description => CurrentStep<WorkflowStep>()?.Description ?? string.Empty;
+
+    private bool IsRecursive => !string.IsNullOrEmpty(SubflowName)
+        && State.Value.OpenDocuments.ContainsKey(SubflowName);
+
+    private WorkflowDocument? CachedSubflow =>
+        SubflowName is { Length: > 0 } name && State.Value.SubflowCache.TryGetValue(name, out var d) ? d : null;
+
+    private string CardClass
     {
         get
         {
-            var name = State.Value.ActiveDocumentName;
-            if (name is null || !State.Value.OpenDocuments.TryGetValue(name, out var editor))
-                return Node.Title ?? string.Empty;
-
-            var step = editor.Document.Steps.FirstOrDefault(s => s.Id == Node.StepId);
-            return step?.Description ?? Node.Title ?? string.Empty;
+            var classes = new List<string> { "pa-3" };
+            if (Node.Selected) classes.Add("selected-node");
+            var docName = State.Value.ActiveDocumentName;
+            if (docName is not null && State.Value.InvalidStepsFor(docName).Contains(Node.StepId))
+                classes.Add("invalid-node");
+            return string.Join(' ', classes);
         }
     }
 
-    private bool IsRecursive => !string.IsNullOrEmpty(Node.SubflowName)
-        && State.Value.OpenDocuments.ContainsKey(Node.SubflowName);
-
-    private WorkflowDocument? CachedSubflow =>
-        State.Value.SubflowCache.TryGetValue(Node.SubflowName, out var d) ? d : null;
+    private T? CurrentStep<T>() where T : WorkflowStep
+    {
+        var name = State.Value.ActiveDocumentName;
+        if (name is null || !State.Value.OpenDocuments.TryGetValue(name, out var editor)) return null;
+        return editor.Document.Steps.OfType<T>().FirstOrDefault(s => s.Id == Node.StepId);
+    }
 
     protected override void OnParametersSet()
     {
         base.OnParametersSet();
-        TryFetchOnce();
+
+        var current = SubflowName;
+        if (current == _lastFetchedName) return;
+
+        _lastFetchedName = current;
+        TryFetch();
     }
 
-    private void TryFetchOnce()
+    private void TryFetch()
     {
-        if (_hasRequestedFetch) return;
-        if (string.IsNullOrEmpty(Node.SubflowName)) return;
+        var name = SubflowName;
+        if (string.IsNullOrEmpty(name)) return;
         if (IsRecursive) return;
-        if (State.Value.SubflowCache.ContainsKey(Node.SubflowName)) return;
-        if (State.Value.LoadingSubflows.Contains(Node.SubflowName)) return;
+        if (State.Value.SubflowCache.ContainsKey(name)) return;
+        if (State.Value.LoadingSubflows.Contains(name)) return;
 
-        _hasRequestedFetch = true;
-        Dispatcher.Dispatch(new LoadSubflowAction(Node.SubflowName));
+        Dispatcher.Dispatch(new LoadSubflowAction(name));
     }
 
     private void OpenSubflow()
     {
-        if (string.IsNullOrEmpty(Node.SubflowName)) return;
-        Dispatcher.Dispatch(new OpenSubflowAction(Node.SubflowName));
+        if (string.IsNullOrEmpty(SubflowName)) return;
+        Dispatcher.Dispatch(new OpenSubflowAction(SubflowName));
+    }
+
+    private async Task OpenEdit()
+    {
+        var docName = State.Value.ActiveDocumentName;
+        if (docName is null) return;
+        var step = CurrentStep<WorkflowStep>();
+        if (step is null) return;
+
+        var parameters = new DialogParameters { { nameof(EditStepDialog.Step), step } };
+        var dialog = await Dialogs.ShowAsync<EditStepDialog>("Редактирование подпроцесса", parameters);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not EditStepDialog.EditStepResult edit) return;
+
+        if (step is SubflowStep s && s.SubflowName != edit.KindOrName)
+            Dispatcher.Dispatch(new UpdateSubflowNameAction(docName, step.Id, edit.KindOrName));
+        if (step.Description != edit.Description)
+            Dispatcher.Dispatch(new UpdateStepDescriptionAction(docName, step.Id, edit.Description));
     }
 
     private static string StepLabel(WorkflowStep step)

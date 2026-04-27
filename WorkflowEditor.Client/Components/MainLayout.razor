@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject IActionSubscriber Subscriber
 @inject ISnackbar Snackbar
+@inject IState<EditorState> EditorState
 
 <style>
     /* Рантайм-инъекция стилей с правильным именем класса движка */
@@ -27,6 +28,9 @@
     .diagram-port.right { right: -8px !important; top: 50% !important; transform: translateY(-50%) !important; }
     .diagram-port.top { top: -8px !important; left: 50% !important; transform: translateX(-50%) !important; }
     .diagram-port.bottom { bottom: -8px !important; left: 50% !important; transform: translateX(-50%) !important; }
+
+    /* Красная обводка для невалидных узлов после провальной валидации экспорта. */
+    .invalid-node { border: 3px solid #ff4444 !important; }
 </style>
 
 <MudThemeProvider Theme="_theme" />
@@ -61,8 +65,15 @@
             _ => Snackbar.Add("Сохранено", Severity.Success));
         Subscriber.SubscribeToAction<ImportFileFailedAction>(this,
             a => Snackbar.Add($"Не удалось загрузить файл «{a.FileName}»: {a.ErrorMessage}", Severity.Error));
-        Subscriber.SubscribeToAction<LoadSubflowFailedAction>(this,
-            a => Snackbar.Add($"Подпроцесс «{a.Name}» не загружен: {a.ErrorMessage}", Severity.Warning));
+        Subscriber.SubscribeToAction<LoadSubflowFailedAction>(this, a =>
+        {
+            // Во время batch-импорта (drag-drop нескольких файлов) подавляем "subflow не найден":
+            // следующий файл из набора может оказаться искомым подпроцессом.
+            if (EditorState.Value.PendingImports > 0) return;
+            Snackbar.Add($"Подпроцесс «{a.Name}» не загружен: {a.ErrorMessage}", Severity.Warning);
+        });
+        Subscriber.SubscribeToAction<RenameWorkflowFailedAction>(this,
+            a => Snackbar.Add($"Не удалось переименовать: {a.ErrorMessage}", Severity.Error));
     }
 
     public void Dispose() => Subscriber.UnsubscribeFromAllActions(this);

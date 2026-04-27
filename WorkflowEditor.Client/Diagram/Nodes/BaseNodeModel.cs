@@ -4,14 +4,13 @@ using WorkflowEditor.Core.Models.Steps;
 
 namespace WorkflowEditor.Client.Diagram.Nodes;
 
+// Узел только адресуется по StepId. Все отображаемые свойства (StepKind, Description)
+// читаются виджетом напрямую из EditorState — иначе get-only поля nodeModel остаются
+// stale после reducer-update.
 public sealed class BaseNodeModel : WorkflowNodeModel
 {
-    public string StepKind { get; }
-
     public BaseNodeModel(BaseStep step, CanvasPosition position) : base(step, position)
     {
-        StepKind = step.StepKind;
-
         AddPort(PortAlignment.Top);
         AddPort(PortAlignment.Bottom);
         AddPort(PortAlignment.Left);

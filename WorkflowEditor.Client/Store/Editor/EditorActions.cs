@@ -45,6 +45,37 @@ public sealed record MoveStepAction(string Name, string StepId, CanvasPosition N
 public sealed record AddLinkAction(string Name, EditorLink Link);
 public sealed record RemoveLinksAction(string Name, IReadOnlyList<string> LinkIds);
 
+// Copy/Paste --------------------------------------------------------------------
+public sealed record CopySelectionAction(string Name, IReadOnlyList<string> StepIds);
+public sealed record PasteClipboardAction(string Name, double CanvasX, double CanvasY);
+
+// Batch-импорт нескольких файлов одновременно (drag-drop) -----------------------
+// Started(N) ставит счётчик; каждый успешный OpenWorkflow / ImportFileFailed —
+// декремент в соответствующем reducer'е. Пока счётчик > 0, MainLayout подавляет
+// subflow-not-found snackbar (следующий файл может оказаться искомым subflow).
+public sealed record BatchImportStartedAction(int Count);
+
+// Переименование вкладки (= workflow). Cascade=true — также переименовывает
+// все SubflowStep с OldName во всех открытых документах. Конфликт-чек делает effect.
+public sealed record RenameWorkflowRequestedAction(string OldName, string NewName, bool CascadeSubflows);
+public sealed record RenameWorkflowAction(string OldName, string NewName, bool CascadeSubflows);
+public sealed record RenameWorkflowFailedAction(string OldName, string NewName, string ErrorMessage);
+
+// ПКМ → «Переименовать subflow». Cascade=true → делегирует на RenameWorkflow либо
+// CascadeRenameSubflowReferences (если открытой вкладки нет).
+// Cascade=false → только этот узел через UpdateSubflowName.
+public sealed record RenameSubflowRequestedAction(string DocName, string StepId, string NewSubflowName, bool Cascade);
+
+// Cascade-переименование SubflowStep по всем открытым документам, БЕЗ переноса вкладки.
+public sealed record CascadeRenameSubflowReferencesAction(string OldSubflowName, string NewSubflowName);
+
+// Drag-reorder вкладок (массив имён в новом порядке).
+public sealed record ReorderTabsAction(IReadOnlyList<string> NewOrder);
+
+// Подсветка невалидных узлов на холсте (при provoked save с невалидным графом).
+public sealed record MarkInvalidStepsAction(string Name, IReadOnlyList<string> StepIds);
+public sealed record ClearInvalidStepsAction(string Name);
+
 // Properties-панель -------------------------------------------------------------
 public sealed record StartEditingStepAction(string StepId);
 public sealed record StopEditingStepAction;

@@ -1,0 +1,36 @@
+.workflow-tabs {
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+    padding: 6px 12px;
+    background: #1a1a1a;
+    border-bottom: 1px solid #333;
+    overflow-x: auto;
+    user-select: none;
+}
+
+.workflow-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px 6px 12px;
+    background: #2a2a2a;
+    color: #ccc;
+    border-radius: 4px 4px 0 0;
+    cursor: pointer;
+    white-space: nowrap;
+    border: 1px solid transparent;
+}
+
+.workflow-tab:hover { background: #333; }
+.workflow-tab.active { background: #3267ff; color: white; }
+.workflow-tab.dragging { opacity: 0.5; }
+.workflow-tab .dirty-mark { color: #ffb84d; font-weight: bold; }
+
+.workflow-tab .tab-name-input {
+    background: transparent;
+    border: 1px solid #fff8;
+    color: inherit;
+    padding: 0 4px;
+    min-width: 80px;
+}

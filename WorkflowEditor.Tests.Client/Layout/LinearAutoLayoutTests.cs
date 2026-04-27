@@ -14,7 +14,7 @@ public class LinearAutoLayoutTests
     }
 
     [Fact]
-    public void Three_steps_get_positions_stride_120_top_to_bottom()
+    public void Three_steps_get_positions_with_180_stride_top_to_bottom_starting_at_StepY()
     {
         var s1 = EditorTestData.Base("a", id: "1");
         var s2 = EditorTestData.Base("b", id: "2");
@@ -22,8 +22,8 @@ public class LinearAutoLayoutTests
 
         var positions = LinearAutoLayout.ForSteps([s1, s2, s3]);
 
-        positions["1"].Should().Be(new CanvasPosition(0, 0));
-        positions["2"].Should().Be(new CanvasPosition(0, 120));
-        positions["3"].Should().Be(new CanvasPosition(0, 240));
+        positions["1"].Should().Be(new CanvasPosition(0, 40));
+        positions["2"].Should().Be(new CanvasPosition(0, 220));
+        positions["3"].Should().Be(new CanvasPosition(0, 400));
     }
 }

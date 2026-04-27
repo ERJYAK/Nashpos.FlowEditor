@@ -102,6 +102,20 @@
 
     private void OnStateChanged(object? sender, EventArgs args) => SyncStateToDiagram();
 
+    // Страховка против stale-узлов: даже если @key уберут — sync обязательно вызовется
+    // на каждое изменение Name, без ожидания State.StateChanged.
+    private string? _lastSyncedName;
+
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+        if (Name != _lastSyncedName)
+        {
+            _lastSyncedName = Name;
+            SyncStateToDiagram();
+        }
+    }
+
     protected override Task OnAfterRenderAsync(bool firstRender)
     {
         if (_pendingSelection is { Count: > 0 } sel)
@@ -334,6 +348,18 @@
                  || ((e.Key is "z" or "Z" || e.Code == "KeyZ") && e.ShiftKey))
         {
             if (State.Value.CanRedo(Name)) Dispatcher.Dispatch(new RedoAction(Name));
+        }
+        else if (e.Key is "c" or "C" || e.Code == "KeyC")
+        {
+            var stepIds = CurrentSelection().OfType<WorkflowNodeModel>().Select(n => n.StepId).ToList();
+            if (stepIds.Count > 0)
+                Dispatcher.Dispatch(new CopySelectionAction(Name, stepIds));
+        }
+        else if (e.Key is "v" or "V" || e.Code == "KeyV")
+        {
+            if (State.Value.Clipboard is null) return;
+            var pt = Diagram.GetRelativeMousePoint(_lastClientX, _lastClientY);
+            Dispatcher.Dispatch(new PasteClipboardAction(Name, pt.X, pt.Y));
         }
     }
 

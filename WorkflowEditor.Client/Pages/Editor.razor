@@ -23,36 +23,31 @@
         <MudMenuItem OnClick="AddSubflowStep">Шаг subflow</MudMenuItem>
     </MudMenu>
 
-    <MudButton Variant="Variant.Filled"
-               Color="Color.Tertiary"
-               StartIcon="@Icons.Material.Filled.Save"
-               Class="ml-2"
-               Disabled="@(State.Value.ActiveDocumentName is null)"
-               OnClick="SaveActiveAsFile">
-        Сохранить файл
-    </MudButton>
-
-    <MudFileUpload T="IBrowserFile"
-                   @ref="_fileUpload"
-                   Accept=".json"
-                   FilesChanged="OnFilePicked"
-                   Hidden="true" />
-    <MudButton Variant="Variant.Outlined"
-               Color="Color.Tertiary"
-               StartIcon="@Icons.Material.Filled.UploadFile"
-               Class="ml-2"
-               OnClick="OpenFilePicker">
-        Загрузить файл
-    </MudButton>
-
-    <MudButton Variant="Variant.Filled"
-               Color="Color.Default"
-               StartIcon="@Icons.Material.Filled.CloudUpload"
-               Class="ml-2"
-               Disabled="@(State.Value.ActiveDocumentName is null)"
-               OnClick="SaveActiveToServer">
-        Сохранить на сервер
-    </MudButton>
+    <MudMenu Label="Файл"
+             Variant="Variant.Filled"
+             Color="Color.Tertiary"
+             Class="ml-2"
+             StartIcon="@Icons.Material.Filled.Folder"
+             EndIcon="@Icons.Material.Filled.KeyboardArrowDown">
+        <MudMenuItem OnClick="OpenFilePicker">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIcon Icon="@Icons.Material.Filled.UploadFile" Size="Size.Small" />
+                <span>Загрузить файл</span>
+            </MudStack>
+        </MudMenuItem>
+        <MudMenuItem OnClick="SaveActiveAsFile" Disabled="@(State.Value.ActiveDocumentName is null)">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIcon Icon="@Icons.Material.Filled.Save" Size="Size.Small" />
+                <span>Сохранить файл</span>
+            </MudStack>
+        </MudMenuItem>
+        <MudMenuItem OnClick="SaveActiveToServer" Disabled="@(State.Value.ActiveDocumentName is null)">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIcon Icon="@Icons.Material.Filled.CloudUpload" Size="Size.Small" />
+                <span>Сохранить на сервер</span>
+            </MudStack>
+        </MudMenuItem>
+    </MudMenu>
 
     <MudButton Variant="Variant.Outlined"
                Color="Color.Default"
@@ -78,46 +73,77 @@
     <MudSpacer />
 </MudAppBar>
 
+@* MudFileUpload — невидимый, открывается из меню «Файл» через _fileUpload?.OpenFilePickerAsync().
+   Внешняя обёртка `display:none` — единственный надёжный способ, не зависящий от внутренней
+   реализации MudFileUpload (атрибут Hidden=true в 9.x иногда оставляет видимый «Browse files»). *@
+<div style="display: none; position: absolute;">
+    <MudFileUpload T="IReadOnlyList<IBrowserFile>"
+                   @ref="_fileUpload"
+                   Accept=".json"
+                   FilesChanged="OnFilesPicked" />
+</div>
+
 <div id="editor-drop-zone"
-     class="editor-container mt-2"
+     class="editor-container"
      style="height: calc(100vh - 64px);"
      @oncontextmenu="ShowContextMenu"
      @oncontextmenu:preventDefault="true">
 
     @if (State.Value.OpenDocuments.Count > 0)
     {
-        <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true"
-                 ActivePanelIndex="@GetActiveIndex()"
-                 ActivePanelIndexChanged="OnTabChanged">
-
-            @foreach (var (name, _) in State.Value.OpenDocuments.OrderBy(kv => kv.Key))
+        <div id="workflow-tabs-container" class="workflow-tabs">
+            @foreach (var name in OrderedTabNames())
             {
-                var isDirty = State.Value.IsDirty(name);
-                var tabText = isDirty ? $"● {name}" : name;
-                <MudTabPanel Text="@tabText" Tag="@name">
-                    @if (State.Value.ActiveDocumentName == name)
+                var localName = name; // capture for click handler
+                var isActive = name == State.Value.ActiveDocumentName;
+                <div class="@TabClass(name, isActive)"
+                     draggable="true"
+                     data-tab-name="@name"
+                     @onclick="() => Dispatcher.Dispatch(new SwitchTabAction(localName))"
+                     @ondblclick="() => StartEditTab(localName)"
+                     @ondblclick:stopPropagation="true">
+                    @if (_editingTabName == name)
                     {
-                        <div style="height: calc(100vh - 120px);">
-                            <CanvasTab @ref="_activeCanvas"
-                                       Name="@name"
-                                       OnSelectionChanged="@(s => _selection = s)"
-                                       OnContextMenuRequested="@(info => _contextMenuInfo = info)"/>
-                        </div>
+                        <input class="tab-name-input"
+                               value="@_editTabValue"
+                               @oninput="e => _editTabValue = (string)(e.Value ?? string.Empty)"
+                               @onblur="CommitEditTab"
+                               @onkeydown="EditTabKeyDown"
+                               @onkeydown:stopPropagation="true"
+                               @ref="_editingTabInput" />
                     }
-                </MudTabPanel>
+                    else
+                    {
+                        @if (State.Value.IsDirty(name))
+                        {
+                            <span class="dirty-mark">●</span>
+                        }
+                        <span>@name</span>
+                        <span @onclick:stopPropagation="true" @ondblclick:stopPropagation="true">
+                            <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                           Size="Size.Small"
+                                           Color="@(isActive ? Color.Inherit : Color.Default)"
+                                           OnClick="@(() => CloseTab(localName))"
+                                           title="Закрыть вкладку" />
+                        </span>
+                    }
+                </div>
             }
-        </MudTabs>
-    }
-    else
-    {
-        <MudStack AlignItems="AlignItems.Center" Class="mt-10">
-            <MudAlert Severity="Severity.Info">
-                Нет открытых процессов. Создайте новый, перетащите JSON-файл в это окно или нажмите «Загрузить файл».
-            </MudAlert>
-            <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="CreateNewWorkflow">
-                Создать первый процесс
-            </MudButton>
-        </MudStack>
+        </div>
+
+        @if (State.Value.ActiveDocumentName is { } activeName &&
+             State.Value.OpenDocuments.ContainsKey(activeName))
+        {
+            <div style="height: calc(100vh - 120px);">
+                @* @key пересоздаёт CanvasTab при смене активной вкладки — иначе старые узлы
+                   из предыдущего документа остаются в Diagram и «перетекают» на новый холст. *@
+                <CanvasTab @key="@activeName"
+                           @ref="_activeCanvas"
+                           Name="@activeName"
+                           OnSelectionChanged="@(s => _selection = s)"
+                           OnContextMenuRequested="@(info => _contextMenuInfo = info)"/>
+            </div>
+        }
     }
 </div>
 
@@ -131,6 +157,8 @@
     [Inject] private IFileDownloader Downloader { get; set; } = null!;
     [Inject] private ISnackbar Snackbar { get; set; } = null!;
 
+    private const string DraftPrefix = "new-workflow-";
+
     private EditorContextMenu _contextMenu = null!;
     private CanvasTab? _activeCanvas;
     private IReadOnlyList<SelectableModel> _selection = Array.Empty<SelectableModel>();
@@ -138,19 +166,124 @@
 
     private DotNetObjectReference<Editor>? _selfRef;
     private bool _dropZoneAttached;
-    private MudFileUpload<IBrowserFile>? _fileUpload;
+    private bool _tabReorderAttached;
+    private MudFileUpload<IReadOnlyList<IBrowserFile>>? _fileUpload;
+
+    private string? _editingTabName;
+    private string _editTabValue = string.Empty;
+    private ElementReference _editingTabInput;
+    private bool _focusEditingTab;
 
     private Task OpenFilePicker() => _fileUpload?.OpenFilePickerAsync() ?? Task.CompletedTask;
+
+    private IEnumerable<string> OrderedTabNames()
+    {
+        // TabOrder может содержать удалённые имена (paranoia) или забытые — фильтруем + дописываем хвост.
+        var seen = new HashSet<string>();
+        foreach (var n in State.Value.TabOrder)
+        {
+            if (State.Value.OpenDocuments.ContainsKey(n) && seen.Add(n)) yield return n;
+        }
+        foreach (var n in State.Value.OpenDocuments.Keys)
+        {
+            if (seen.Add(n)) yield return n;
+        }
+    }
+
+    private string TabClass(string name, bool isActive)
+    {
+        var classes = new List<string> { "workflow-tab" };
+        if (isActive) classes.Add("active");
+        return string.Join(' ', classes);
+    }
+
+    private void StartEditTab(string name)
+    {
+        _editingTabName = name;
+        _editTabValue = name;
+        _focusEditingTab = true;
+    }
+
+    private void EditTabKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") CommitEditTab();
+        else if (e.Key == "Escape") CancelEditTab();
+    }
+
+    private void CancelEditTab()
+    {
+        _editingTabName = null;
+        _editTabValue = string.Empty;
+    }
+
+    private void CommitEditTab()
+    {
+        var oldName = _editingTabName;
+        var newName = _editTabValue.Trim();
+        _editingTabName = null;
+        _editTabValue = string.Empty;
+        if (oldName is null || string.IsNullOrEmpty(newName) || newName == oldName) return;
+
+        Dispatcher.Dispatch(new RenameWorkflowRequestedAction(oldName, newName, CascadeSubflows: true));
+    }
+
+    [JSInvokable]
+    public Task OnTabsReordered(string[] order)
+    {
+        Dispatcher.Dispatch(new ReorderTabsAction(order));
+        return Task.CompletedTask;
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         await base.OnAfterRenderAsync(firstRender);
-        if (firstRender && !_dropZoneAttached)
+
+        if (firstRender)
         {
-            _selfRef = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("fileDrop.attach", "editor-drop-zone", _selfRef);
-            _dropZoneAttached = true;
+            _selfRef ??= DotNetObjectReference.Create(this);
+
+            if (!_dropZoneAttached)
+            {
+                await JS.InvokeVoidAsync("fileDrop.attach", "editor-drop-zone", _selfRef);
+                _dropZoneAttached = true;
+            }
+
+            // Авто-создание пустого холста при первом заходе на /editor.
+            if (State.Value.OpenDocuments.Count == 0)
+            {
+                Dispatcher.Dispatch(new CreateWorkflowRequestedAction(GenerateDraftName()));
+            }
         }
+
+        // Tab-reorder JS привязывается к контейнеру вкладок, который появляется только когда есть документы.
+        if (!_tabReorderAttached && State.Value.OpenDocuments.Count > 0)
+        {
+            _selfRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("tabReorder.attach", "workflow-tabs-container", _selfRef);
+            _tabReorderAttached = true;
+        }
+
+        if (_focusEditingTab && _editingTabName is not null)
+        {
+            _focusEditingTab = false;
+            try { await _editingTabInput.FocusAsync(); } catch { /* ok */ }
+        }
+    }
+
+    private string GenerateDraftName()
+    {
+        for (var i = 1; ; i++)
+        {
+            var candidate = DraftPrefix + i;
+            if (!State.Value.OpenDocuments.ContainsKey(candidate)) return candidate;
+        }
+    }
+
+    [JSInvokable]
+    public Task OnBatchStart(int count)
+    {
+        Dispatcher.Dispatch(new BatchImportStartedAction(count));
+        return Task.CompletedTask;
     }
 
     [JSInvokable]
@@ -164,22 +297,28 @@
     public Task OnFileDropFailed(string name, string error)
     {
         Snackbar.Add($"Не удалось прочитать файл «{name}»: {error}", Severity.Error);
+        Dispatcher.Dispatch(new ImportFileFailedAction(name, error));
         return Task.CompletedTask;
     }
 
-    private async Task OnFilePicked(IBrowserFile? file)
+    private async Task OnFilesPicked(IReadOnlyList<IBrowserFile>? files)
     {
-        if (file is null) return;
-        try
+        if (files is null || files.Count == 0) return;
+        Dispatcher.Dispatch(new BatchImportStartedAction(files.Count));
+        foreach (var file in files)
         {
-            await using var stream = file.OpenReadStream(maxAllowedSize: 4 * 1024 * 1024);
-            using var reader = new StreamReader(stream);
-            var text = await reader.ReadToEndAsync();
-            Dispatcher.Dispatch(new ImportFileRequestedAction(file.Name, text));
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Не удалось прочитать файл «{file.Name}»: {ex.Message}", Severity.Error);
+            try
+            {
+                await using var stream = file.OpenReadStream(maxAllowedSize: 4 * 1024 * 1024);
+                using var reader = new StreamReader(stream);
+                var text = await reader.ReadToEndAsync();
+                Dispatcher.Dispatch(new ImportFileRequestedAction(file.Name, text));
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Не удалось прочитать файл «{file.Name}»: {ex.Message}", Severity.Error);
+                Dispatcher.Dispatch(new ImportFileFailedAction(file.Name, ex.Message));
+            }
         }
     }
 
@@ -213,6 +352,15 @@
         if (name is null) return;
         if (!State.Value.OpenDocuments.TryGetValue(name, out var editor)) return;
 
+        var validation = WorkflowGraphValidator.ValidateForExport(editor.Document.Steps, editor.Links);
+        if (!validation.IsValid)
+        {
+            Dispatcher.Dispatch(new MarkInvalidStepsAction(name, validation.InvalidStepIds.ToList()));
+            Snackbar.Add($"Не удалось сохранить: {validation.Message}", Severity.Error);
+            return;
+        }
+
+        Dispatcher.Dispatch(new ClearInvalidStepsAction(name));
         var json = System.Text.Json.JsonSerializer.Serialize(editor.Document, JsonConfiguration.GetOptions());
         await Downloader.DownloadAsync($"{name}.json", json);
     }
@@ -324,11 +472,9 @@
     void IDisposable.Dispose()
     {
         if (_dropZoneAttached)
-        {
-            // Fire-and-forget: при уходе со страницы JS-listener может не успеть отсоединиться,
-            // но event-handler будет жить только до следующей перезагрузки SPA.
             _ = JS.InvokeVoidAsync("fileDrop.detach", "editor-drop-zone");
-        }
+        if (_tabReorderAttached)
+            _ = JS.InvokeVoidAsync("tabReorder.detach", "workflow-tabs-container");
         _selfRef?.Dispose();
     }
 }

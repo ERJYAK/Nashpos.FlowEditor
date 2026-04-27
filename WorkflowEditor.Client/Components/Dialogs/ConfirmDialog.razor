@@ -1,0 +1,21 @@
+@* Простой Yes/No-диалог для подтверждения действий. Возвращает bool в DialogResult.Data. *@
+
+<MudDialog>
+    <DialogContent>
+        <MudText>@Message</MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="No">@NoLabel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Yes">@YesLabel</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+    [Parameter] public string Message { get; set; } = "Подтвердите действие";
+    [Parameter] public string YesLabel { get; set; } = "Да";
+    [Parameter] public string NoLabel { get; set; } = "Нет";
+
+    private void Yes() => Dialog.Close(DialogResult.Ok(true));
+    private void No() => Dialog.Close(DialogResult.Ok(false));
+}
