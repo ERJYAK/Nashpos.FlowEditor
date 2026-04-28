@@ -48,6 +48,12 @@
                 <span>Сохранить на сервер</span>
             </MudStack>
         </MudMenuItem>
+        <MudMenuItem OnClick="OpenRestoreDialog" Disabled="@(VisibleClosedCount() == 0)">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIcon Icon="@Icons.Material.Filled.History" Size="Size.Small" />
+                <span>Восстановить workflow</span>
+            </MudStack>
+        </MudMenuItem>
     </MudMenu>
 
     <MudButton Variant="Variant.Outlined"
@@ -397,6 +403,20 @@
 
         var name = (string)result.Data!;
         Dispatcher.Dispatch(new CreateWorkflowRequestedAction(name));
+    }
+
+    private int VisibleClosedCount() =>
+        State.Value.ClosedDocuments.Values
+            .Count(e => !State.Value.OpenDocuments.ContainsKey(e.Name));
+
+    private async Task OpenRestoreDialog()
+    {
+        var dialog = await Dialogs.ShowAsync<RestoreWorkflowDialog>(
+            "Восстановить закрытый workflow",
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not string name) return;
+        Dispatcher.Dispatch(new RestoreClosedDocumentAction(name));
     }
 
     private async Task AddBaseStep()

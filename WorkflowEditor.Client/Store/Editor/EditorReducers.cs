@@ -32,7 +32,10 @@ public static class EditorReducers
             InvalidStepIds = state.InvalidStepIds.Remove(action.Document.Name),
             TabOrder = state.TabOrder.Contains(action.Document.Name)
                 ? state.TabOrder
-                : state.TabOrder.Add(action.Document.Name)
+                : state.TabOrder.Add(action.Document.Name),
+            // Свежая версия документа открыта — старый snapshot из «закрытых» больше не нужен,
+            // иначе пользователь смог бы «восстановить» более раннюю версию поверх свежей.
+            ClosedDocuments = state.ClosedDocuments.Remove(action.Document.Name)
         };
     }
 
@@ -43,13 +46,23 @@ public static class EditorReducers
     [ReducerMethod]
     public static EditorState ReduceCloseTabAction(EditorState state, CloseTabAction action)
     {
-        if (!state.OpenDocuments.ContainsKey(action.Name)) return state;
+        if (!state.OpenDocuments.TryGetValue(action.Name, out var snapshot)) return state;
 
         var remaining = state.OpenDocuments.Remove(action.Name);
         var newOrder = state.TabOrder.Remove(action.Name);
         var nextActive = state.ActiveDocumentName == action.Name
             ? newOrder.FirstOrDefault() ?? remaining.Keys.FirstOrDefault()
             : state.ActiveDocumentName;
+
+        // Сохраняем snapshot закрытой вкладки для возможного восстановления через
+        // меню Файл → Восстановить workflow. Если запись с тем же именем уже была —
+        // overwrite (последняя версия побеждает).
+        var closedEntry = new ClosedDocumentEntry
+        {
+            Name = action.Name,
+            Document = snapshot,
+            ClosedAt = DateTimeOffset.UtcNow
+        };
 
         return state with
         {
@@ -59,7 +72,26 @@ public static class EditorReducers
             UndoStacks = state.UndoStacks.Remove(action.Name),
             RedoStacks = state.RedoStacks.Remove(action.Name),
             InvalidStepIds = state.InvalidStepIds.Remove(action.Name),
-            TabOrder = newOrder
+            TabOrder = newOrder,
+            ClosedDocuments = state.ClosedDocuments.SetItem(action.Name, closedEntry)
+        };
+    }
+
+    [ReducerMethod]
+    public static EditorState ReduceRestoreClosedDocumentAction(
+        EditorState state, RestoreClosedDocumentAction action)
+    {
+        if (!state.ClosedDocuments.TryGetValue(action.Name, out var entry)) return state;
+        if (state.OpenDocuments.ContainsKey(action.Name)) return state;
+
+        return state with
+        {
+            OpenDocuments = state.OpenDocuments.SetItem(action.Name, entry.Document),
+            ActiveDocumentName = action.Name,
+            TabOrder = state.TabOrder.Contains(action.Name)
+                ? state.TabOrder
+                : state.TabOrder.Add(action.Name),
+            ClosedDocuments = state.ClosedDocuments.Remove(action.Name)
         };
     }
 
@@ -85,7 +117,8 @@ public static class EditorReducers
             InvalidStepIds = state.InvalidStepIds.Remove(action.Document.Name),
             TabOrder = state.TabOrder.Contains(action.Document.Name)
                 ? state.TabOrder
-                : state.TabOrder.Add(action.Document.Name)
+                : state.TabOrder.Add(action.Document.Name),
+            ClosedDocuments = state.ClosedDocuments.Remove(action.Document.Name)
         };
     }
 

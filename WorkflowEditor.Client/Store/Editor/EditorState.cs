@@ -50,6 +50,12 @@ public sealed record EditorState
     // OpenDocuments через ReduceOpenWorkflowAction / ReduceCloseTabAction.
     public ImmutableList<string> TabOrder { get; init; } = ImmutableList<string>.Empty;
 
+    // «Корзина» закрытых вкладок текущей сессии. Заполняется ReduceCloseTabAction,
+    // очищается при ReduceOpenWorkflowAction/LoadWorkflowSuccessAction (документ снова открыт)
+    // и при ReduceRestoreClosedDocumentAction. Не персистится — теряется при F5.
+    public ImmutableDictionary<string, ClosedDocumentEntry> ClosedDocuments { get; init; } =
+        ImmutableDictionary<string, ClosedDocumentEntry>.Empty;
+
     public bool IsDirty(string name) => DirtyDocuments.Contains(name);
 
     public bool CanUndo(string name) =>
@@ -77,6 +83,16 @@ public sealed record EditorDocument
     // в Document.Steps — генерируются из Branch'ей шагов и нужны только для отображения.
     public ImmutableDictionary<string, StopNodeInfo> VirtualStops { get; init; } =
         ImmutableDictionary<string, StopNodeInfo>.Empty;
+}
+
+// Снимок закрытой вкладки. Не сохраняется в localStorage — живёт только в текущей
+// сессии Blazor WASM (до F5/закрытия). Восстановление возвращает полный EditorDocument
+// с расположением узлов и виртуальными STOP-узлами; Dirty/Undo/Redo состояния не сохраняются.
+public sealed record ClosedDocumentEntry
+{
+    public required string Name { get; init; }
+    public required EditorDocument Document { get; init; }
+    public required DateTimeOffset ClosedAt { get; init; }
 }
 
 // Виртуальный узел-«хвост» для BREAK_WORKFLOW / SILENT_BREAK_WORKFLOW.

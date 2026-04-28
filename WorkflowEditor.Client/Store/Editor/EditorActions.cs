@@ -7,6 +7,11 @@ public sealed record OpenWorkflowAction(WorkflowDocument Document);
 public sealed record SwitchTabAction(string Name);
 public sealed record CloseTabAction(string Name);
 
+// Восстановить ранее закрытую вкладку: возвращает её в OpenDocuments из ClosedDocuments
+// со всем расположением узлов/связей. No-op, если запись отсутствует или такое имя
+// уже открыто (защита от гонок).
+public sealed record RestoreClosedDocumentAction(string Name);
+
 // Создание нового процесса — сначала сигнал «пользователь нажал кнопку и ввёл имя»,
 // эффект делает черновой WorkflowDocument и открывает его.
 public sealed record CreateWorkflowRequestedAction(string Name);

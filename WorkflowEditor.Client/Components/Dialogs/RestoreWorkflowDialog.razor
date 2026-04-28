@@ -1,0 +1,72 @@
+@inherits FluxorComponent
+@inject IState<EditorState> State
+
+@* Диалог восстановления закрытого workflow в рамках сессии. Показывает только те
+   закрытые документы, которые СЕЙЧАС не открыты — иначе пришлось бы решать конфликт имён.
+   Поиск работает live (Immediate=true) по case-insensitive substring имени.
+   Список отсортирован по времени закрытия (последние сверху). *@
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2" Style="min-width: 420px; max-height: 60vh;">
+            <MudTextField @bind-Value="_search"
+                          Placeholder="Поиск по имени..."
+                          Variant="Variant.Outlined"
+                          Immediate="true"
+                          Clearable="true"
+                          AutoFocus="true"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Search" />
+            @{
+                var entries = FilteredEntries();
+            }
+            @if (entries.Count == 0)
+            {
+                <MudText Typo="Typo.body2">
+                    @(string.IsNullOrEmpty(_search)
+                        ? "Нет закрытых workflow для восстановления."
+                        : "По запросу ничего не найдено.")
+                </MudText>
+            }
+            else
+            {
+                <MudList T="string" Dense="true" Gutters="false">
+                    @foreach (var entry in entries)
+                    {
+                        var localName = entry.Name;
+                        <MudListItem T="string" Value="localName" OnClick="@(() => Submit(localName))">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                <MudIcon Icon="@Icons.Material.Filled.History" Size="Size.Small" />
+                                <span>@entry.Name</span>
+                            </MudStack>
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Закрыть</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+
+    private string _search = string.Empty;
+
+    private List<ClosedDocumentEntry> FilteredEntries()
+    {
+        var open = State.Value.OpenDocuments;
+        var query = _search?.Trim() ?? string.Empty;
+        return State.Value.ClosedDocuments.Values
+            .Where(e => !open.ContainsKey(e.Name))
+            .Where(e => string.IsNullOrEmpty(query)
+                        || e.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(e => e.ClosedAt)
+            .ToList();
+    }
+
+    private void Cancel() => Dialog.Cancel();
+    private void Submit(string name) => Dialog.Close(DialogResult.Ok(name));
+}
