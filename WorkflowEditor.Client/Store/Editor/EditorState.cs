@@ -75,11 +75,34 @@ public sealed record EditorDocument
 }
 
 // Связь между двумя узлами на холсте. Ориентированная: source → target.
+//
+// Условные шаги порождают несколько исходящих связей с разными `Kind`:
+//   - `Default` — обычная линейная связь (нет явного onSuccess/onFail).
+//   - `OnSuccess` / `OnFail` — основные ветви условия.
+//   - `WhenCode` — запись внутри `onFail.whenCode`; ключ кода — в `WhenCode`.
+//
+// `Decision` определяет, что делает целевой узел:
+//   - `NextStep` / `GotoStep` — обычный переход (target — реальный шаг).
+//   - `BreakWorkflow` / `SilentBreakWorkflow` — связь идёт в виртуальный STOP-узел;
+//     `ErrorCode` / `ErrorMessage` относятся только к `BreakWorkflow`.
 public sealed record EditorLink
 {
     public required string Id { get; init; }
     public required string SourceStepId { get; init; }
     public required string TargetStepId { get; init; }
+    public EditorLinkKind Kind { get; init; } = EditorLinkKind.Default;
+    public Decision Decision { get; init; } = Decision.NextStep;
+    public int? WhenCode { get; init; }
+    public int? ErrorCode { get; init; }
+    public string? ErrorMessage { get; init; }
+}
+
+public enum EditorLinkKind
+{
+    Default,
+    OnSuccess,
+    OnFail,
+    WhenCode
 }
 
 // Снимок выделенных узлов и их внутренних связей. Origin = bounding-box top-left:

@@ -1,0 +1,58 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@* Обёртка над Monaco Editor для редактирования JS-скрипта.
+   Сам редактор живёт в JS (window.monacoInterop) — Blazor только хранит DOM-точку
+   и проксирует Value/ValueChanged через JSInterop + DotNetObjectReference.
+   `Height` — высота контейнера; layout управляется опцией automaticLayout=true. *@
+
+<div id="@ElementId" style="width: 100%; height: @Height; border: 1px solid var(--mud-palette-lines-default);"></div>
+
+@code {
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string Language { get; set; } = "javascript";
+    [Parameter] public string Height { get; set; } = "320px";
+
+    private readonly string ElementId = $"monaco-{Guid.NewGuid():N}";
+    private DotNetObjectReference<MonacoJsEditor>? _ref;
+    private bool _initialized;
+    private string _lastSetValue = string.Empty;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _ref = DotNetObjectReference.Create(this);
+            _lastSetValue = Value ?? string.Empty;
+            await JS.InvokeVoidAsync("monacoInterop.create", ElementId, _lastSetValue, Language, _ref);
+            _initialized = true;
+            return;
+        }
+
+        // Если родитель сменил Value снаружи — пушим в редактор. На внутренние правки
+        // редактор не отстаёт от Value (мы сами их туда положили через ValueChanged).
+        if (_initialized && (Value ?? string.Empty) != _lastSetValue)
+        {
+            _lastSetValue = Value ?? string.Empty;
+            await JS.InvokeVoidAsync("monacoInterop.setValue", ElementId, _lastSetValue);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnEditorValueChanged(string newValue)
+    {
+        _lastSetValue = newValue ?? string.Empty;
+        await ValueChanged.InvokeAsync(_lastSetValue);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_initialized)
+        {
+            try { await JS.InvokeVoidAsync("monacoInterop.dispose", ElementId); }
+            catch (JSDisconnectedException) { /* страница перегружается */ }
+        }
+        _ref?.Dispose();
+    }
+}

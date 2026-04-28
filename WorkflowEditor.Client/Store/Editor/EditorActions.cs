@@ -41,6 +41,22 @@ public sealed record UpdateBaseStepKindAction(string Name, string StepId, string
 public sealed record UpdateSubflowNameAction(string Name, string StepId, string NewSubflowName);
 public sealed record MoveStepAction(string Name, string StepId, CanvasPosition NewPosition);
 
+// Точечный апдейт строкового значения в `Context.Strings[Key]`.
+// Используется, например, для сохранения JS-скрипта (`script`) у `execute-js-script`.
+// Если NewValue пуст — ключ удаляется из словаря.
+public sealed record UpdateStepContextStringAction(string Name, string StepId, string Key, string NewValue);
+
+// Применить изменения веток (onSuccess/onFail) и брейкпоинта к шагу.
+// `NewPersistentStepId == null` ⇒ persistent stepId сбрасывается;
+// `OnSuccess`/`OnFail`/`Breakpoint` == null ⇒ соответствующие поля сбрасываются.
+public sealed record UpdateStepBranchesAction(
+    string Name,
+    string StepId,
+    string? NewPersistentStepId,
+    Branch? OnSuccess,
+    Branch? OnFail,
+    BreakpointConfig? Breakpoint);
+
 // Связи (UI-only) ---------------------------------------------------------------
 public sealed record AddLinkAction(string Name, EditorLink Link);
 public sealed record RemoveLinksAction(string Name, IReadOnlyList<string> LinkIds);

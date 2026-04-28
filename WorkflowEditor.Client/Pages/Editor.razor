@@ -21,6 +21,7 @@
              Disabled="@(State.Value.ActiveDocumentName is null)">
         <MudMenuItem OnClick="AddBaseStep">Базовый шаг</MudMenuItem>
         <MudMenuItem OnClick="AddSubflowStep">Шаг subflow</MudMenuItem>
+        <MudMenuItem OnClick="AddJsScriptStep">JS-шаг (execute-js-script)</MudMenuItem>
     </MudMenu>
 
     <MudMenu Label="Файл"
@@ -396,6 +397,21 @@
         if (docName is null) return;
 
         var step = new BaseStep { Id = Guid.NewGuid().ToString(), Description = "Новый шаг" };
+        Dispatcher.Dispatch(new AddStepAction(docName, step, NextAddPosition()));
+        await Task.CompletedTask;
+    }
+
+    private async Task AddJsScriptStep()
+    {
+        var docName = State.Value.ActiveDocumentName;
+        if (docName is null) return;
+
+        var step = new BaseStep
+        {
+            Id = Guid.NewGuid().ToString(),
+            StepKind = JsScriptNodeModel.ConstStepKind,
+            Description = "Новый JS-шаг"
+        };
         Dispatcher.Dispatch(new AddStepAction(docName, step, NextAddPosition()));
         await Task.CompletedTask;
     }

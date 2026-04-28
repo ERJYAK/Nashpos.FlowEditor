@@ -1,0 +1,77 @@
+@inherits FluxorComponent
+@* Виджет шага `execute-js-script`. Имя обработчика фиксировано (не редактируется),
+   видно только описание. Двойной клик открывает диалог с Monaco-редактором скрипта. *@
+
+<div @ondblclick="OpenEdit" @ondblclick:stopPropagation="true">
+    <MudPaper Elevation="4"
+              Class="@CardClass"
+              Style="min-width: 240px; cursor: pointer; position: relative; overflow: visible;">
+        <MudStack Spacing="1">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIcon Icon="@Icons.Material.Filled.Code" Color="Color.Warning" Size="Size.Small" />
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">execute-js-script</MudChip>
+            </MudStack>
+            <MudText Typo="Typo.caption" Color="Color.Default">@DisplayDescription</MudText>
+        </MudStack>
+
+        @foreach (var port in Node.Ports)
+        {
+            <PortRenderer Port="port" />
+        }
+    </MudPaper>
+</div>
+
+@code {
+    [Parameter] public JsScriptNodeModel Node { get; set; } = null!;
+    [Inject] private IState<EditorState> State { get; set; } = null!;
+    [Inject] private IDispatcher Dispatcher { get; set; } = null!;
+    [Inject] private IDialogService Dialogs { get; set; } = null!;
+
+    private string Description => CurrentStep<WorkflowStep>()?.Description ?? string.Empty;
+    private string DisplayDescription => string.IsNullOrWhiteSpace(Description) ? "JS-скрипт" : Description;
+
+    private string CardClass
+    {
+        get
+        {
+            var classes = new List<string> { "pa-3" };
+            if (Node.Selected) classes.Add("selected-node");
+            var name = State.Value.ActiveDocumentName;
+            if (name is not null && State.Value.InvalidStepsFor(name).Contains(Node.StepId))
+                classes.Add("invalid-node");
+            return string.Join(' ', classes);
+        }
+    }
+
+    private T? CurrentStep<T>() where T : WorkflowStep
+    {
+        var name = State.Value.ActiveDocumentName;
+        if (name is null || !State.Value.OpenDocuments.TryGetValue(name, out var editor)) return null;
+        return editor.Document.Steps.OfType<T>().FirstOrDefault(s => s.Id == Node.StepId);
+    }
+
+    private async Task OpenEdit()
+    {
+        var docName = State.Value.ActiveDocumentName;
+        if (docName is null) return;
+        var step = CurrentStep<BaseStep>();
+        if (step is null) return;
+
+        var script = step.Context?.Strings is { } strings && strings.TryGetValue("script", out var s) ? s : string.Empty;
+
+        var parameters = new DialogParameters
+        {
+            { nameof(EditJsScriptDialog.Description), step.Description },
+            { nameof(EditJsScriptDialog.Script), script }
+        };
+        var dialog = await Dialogs.ShowAsync<EditJsScriptDialog>("Редактирование JS-шага", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not EditJsScriptDialog.EditJsScriptResult edit) return;
+
+        if (step.Description != edit.Description)
+            Dispatcher.Dispatch(new UpdateStepDescriptionAction(docName, step.Id, edit.Description));
+        if (script != edit.Script)
+            Dispatcher.Dispatch(new UpdateStepContextStringAction(docName, step.Id, "script", edit.Script));
+    }
+}

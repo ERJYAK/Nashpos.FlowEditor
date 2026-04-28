@@ -1,0 +1,380 @@
+@inherits FluxorComponent
+@inject IState<EditorState> State
+
+@* Универсальный диалог редактирования веток (onSuccess / onFail) и брейкпоинта.
+   Применяется к любому шагу (BaseStep / SubflowStep / JsScriptNodeModel-карточка).
+   Отдельно редактируется persistent stepId (`id` в JSON) — нужен как target для GOTO_STEP. *@
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width: 720px; max-height: 78vh; overflow-y: auto;">
+
+            <MudTextField @bind-Value="_persistentId"
+                          Label="Persistent ID (id в JSON)"
+                          Variant="Variant.Outlined"
+                          HelperText="Заполняется только если на этот шаг ссылаются GOTO_STEP-переходы. Уникален в пределах одного workflow."
+                          Immediate="true" />
+
+            @SectionRender("onSuccess", _onSuccess, allowWhenCode: false)
+            @SectionRender("onFail",    _onFail,    allowWhenCode: true)
+
+            <MudPaper Outlined="true" Class="pa-3">
+                <MudStack Spacing="2">
+                    <MudCheckBox @bind-Value="_breakpointSet" Label="setBreakpoint" Color="Color.Primary" />
+                    @if (_breakpointSet)
+                    {
+                        <MudStack Row="true" Spacing="3" Style="margin-left: 36px;">
+                            <MudCheckBox @bind-Value="_breakpointRestore" Label="restoreAtNextStep" />
+                            <MudCheckBox @bind-Value="_breakpointIteration" Label="breakIteration" />
+                            <MudNumericField T="int?"
+                                             @bind-Value="_breakpointTimeoutMs"
+                                             Label="breakPointTimeout (мс)"
+                                             Variant="Variant.Outlined"
+                                             Min="0"
+                                             Style="max-width: 220px;" />
+                        </MudStack>
+                    }
+                </MudStack>
+            </MudPaper>
+
+            @if (!string.IsNullOrEmpty(_validationError))
+            {
+                <MudAlert Severity="Severity.Error" Dense="true">@_validationError</MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Отмена</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit">Сохранить</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+    [Parameter] public WorkflowStep Step { get; set; } = null!;
+    [Parameter] public string DocumentName { get; set; } = string.Empty;
+
+    private string _persistentId = string.Empty;
+    private BranchModel _onSuccess = new();
+    private BranchModel _onFail = new();
+
+    private bool _breakpointSet;
+    private bool _breakpointRestore;
+    private bool _breakpointIteration;
+    private int? _breakpointTimeoutMs;
+
+    private string? _validationError;
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        _persistentId = Step.StepId ?? string.Empty;
+        _onSuccess = BranchModel.From(Step.OnSuccess);
+        _onFail = BranchModel.From(Step.OnFail);
+
+        if (Step.Breakpoint is { } bp)
+        {
+            _breakpointSet = bp.Set;
+            _breakpointRestore = bp.RestoreAtNextStep ?? false;
+            _breakpointIteration = bp.BreakIteration ?? false;
+            _breakpointTimeoutMs = bp.TimeoutMs;
+        }
+    }
+
+    private RenderFragment SectionRender(string title, BranchModel model, bool allowWhenCode) => __builder =>
+    {
+        <MudPaper Outlined="true" Class="pa-3">
+            <MudStack Spacing="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudCheckBox @bind-Value="model.Enabled" Color="Color.Primary" />
+                    <MudText Typo="Typo.subtitle1">@title</MudText>
+                </MudStack>
+
+                @if (model.Enabled)
+                {
+                    <MudRadioGroup T="Decision" @bind-Value="model.Decision">
+                        <MudRadio Value="@Decision.NextStep" Color="Color.Primary">NEXT_STEP</MudRadio>
+                        <MudRadio Value="@Decision.GotoStep" Color="Color.Primary">GOTO_STEP</MudRadio>
+                        <MudRadio Value="@Decision.BreakWorkflow" Color="Color.Primary">BREAK_WORKFLOW</MudRadio>
+                        <MudRadio Value="@Decision.SilentBreakWorkflow" Color="Color.Primary">SILENT_BREAK_WORKFLOW</MudRadio>
+                    </MudRadioGroup>
+
+                    @if (model.Decision == Decision.GotoStep)
+                    {
+                        <MudAutocomplete T="string"
+                                         @bind-Value="model.StepId"
+                                         Label="stepId целевого шага"
+                                         Variant="Variant.Outlined"
+                                         CoerceValue="true"
+                                         CoerceText="true"
+                                         SearchFunc="SearchStepIds"
+                                         HelperText="Введите id шага. Доступны id с уже заполненным Persistent ID."
+                                         Style="max-width: 360px;" />
+                    }
+                    else if (model.Decision == Decision.BreakWorkflow)
+                    {
+                        <MudStack Row="true" Spacing="2">
+                            <MudNumericField T="int?"
+                                             @bind-Value="model.ErrorCode"
+                                             Label="errorCode"
+                                             Variant="Variant.Outlined"
+                                             Style="max-width: 160px;" />
+                            <MudTextField @bind-Value="model.ErrorMessage"
+                                          Label="errorMessage"
+                                          Variant="Variant.Outlined"
+                                          Style="flex-grow: 1;" />
+                        </MudStack>
+                    }
+
+                    @if (allowWhenCode)
+                    {
+                        <MudDivider Class="my-1" />
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                            <MudText Typo="Typo.subtitle2">whenCode</MudText>
+                            <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                           Size="Size.Small"
+                                           OnClick="@(() => model.WhenCode.Add(new WhenCodeEntryModel()))"
+                                           title="Добавить запись" />
+                        </MudStack>
+
+                        @foreach (var entry in model.WhenCode.ToList())
+                        {
+                            var localEntry = entry;
+                            <MudPaper Outlined="true" Class="pa-2 ml-4">
+                                <MudStack Spacing="2">
+                                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                                        <MudNumericField T="int?"
+                                                         @bind-Value="localEntry.Code"
+                                                         Label="code"
+                                                         Variant="Variant.Outlined"
+                                                         Style="max-width: 120px;" />
+                                        <MudTextField @bind-Value="localEntry.Description"
+                                                      Label="description"
+                                                      Variant="Variant.Outlined"
+                                                      Style="flex-grow: 1;" />
+                                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                       Size="Size.Small"
+                                                       Color="Color.Error"
+                                                       OnClick="@(() => model.WhenCode.Remove(localEntry))" />
+                                    </MudStack>
+
+                                    <MudRadioGroup T="Decision" @bind-Value="localEntry.Decision">
+                                        <MudRadio Value="@Decision.NextStep">NEXT_STEP</MudRadio>
+                                        <MudRadio Value="@Decision.GotoStep">GOTO_STEP</MudRadio>
+                                        <MudRadio Value="@Decision.BreakWorkflow">BREAK_WORKFLOW</MudRadio>
+                                        <MudRadio Value="@Decision.SilentBreakWorkflow">SILENT_BREAK_WORKFLOW</MudRadio>
+                                    </MudRadioGroup>
+
+                                    @if (localEntry.Decision == Decision.GotoStep)
+                                    {
+                                        <MudAutocomplete T="string"
+                                                         @bind-Value="localEntry.StepId"
+                                                         Label="stepId целевого шага"
+                                                         Variant="Variant.Outlined"
+                                                         CoerceValue="true"
+                                                         CoerceText="true"
+                                                         SearchFunc="SearchStepIds"
+                                                         Style="max-width: 360px;" />
+                                    }
+                                    else if (localEntry.Decision == Decision.BreakWorkflow)
+                                    {
+                                        <MudStack Row="true" Spacing="2">
+                                            <MudNumericField T="int?"
+                                                             @bind-Value="localEntry.ErrorCode"
+                                                             Label="errorCode"
+                                                             Variant="Variant.Outlined"
+                                                             Style="max-width: 160px;" />
+                                            <MudTextField @bind-Value="localEntry.ErrorMessage"
+                                                          Label="errorMessage"
+                                                          Variant="Variant.Outlined"
+                                                          Style="flex-grow: 1;" />
+                                        </MudStack>
+                                    }
+                                </MudStack>
+                            </MudPaper>
+                        }
+                    }
+                }
+            </MudStack>
+        </MudPaper>
+    };
+
+    private Task<IEnumerable<string>> SearchStepIds(string value, CancellationToken _)
+    {
+        if (!State.Value.OpenDocuments.TryGetValue(DocumentName, out var editor))
+            return Task.FromResult(Enumerable.Empty<string>());
+
+        var ids = editor.Document.Steps
+            .Where(s => !string.IsNullOrEmpty(s.StepId) && s.Id != Step.Id)
+            .Select(s => s.StepId!)
+            .Distinct();
+
+        if (!string.IsNullOrEmpty(value))
+            ids = ids.Where(id => id.Contains(value, StringComparison.OrdinalIgnoreCase));
+
+        return Task.FromResult(ids.Take(20));
+    }
+
+    private void Cancel() => Dialog.Cancel();
+
+    private void Submit()
+    {
+        if (!Validate(out var error))
+        {
+            _validationError = error;
+            return;
+        }
+
+        var onSuccess = _onSuccess.ToBranch(allowWhenCode: false);
+        var onFail = _onFail.ToBranch(allowWhenCode: true);
+        var breakpoint = _breakpointSet
+            ? new BreakpointConfig
+            {
+                Set = true,
+                RestoreAtNextStep = _breakpointRestore ? true : (bool?)null,
+                BreakIteration = _breakpointIteration ? true : (bool?)null,
+                TimeoutMs = _breakpointTimeoutMs
+            }
+            : null;
+
+        Dialog.Close(DialogResult.Ok(new EditBranchesResult(
+            string.IsNullOrWhiteSpace(_persistentId) ? null : _persistentId.Trim(),
+            onSuccess, onFail, breakpoint)));
+    }
+
+    private bool Validate(out string error)
+    {
+        error = string.Empty;
+
+        // Persistent ID — уникален в документе.
+        if (!string.IsNullOrWhiteSpace(_persistentId)
+            && State.Value.OpenDocuments.TryGetValue(DocumentName, out var editor)
+            && editor.Document.Steps.Any(s => s.Id != Step.Id && s.StepId == _persistentId.Trim()))
+        {
+            error = $"Persistent ID '{_persistentId.Trim()}' уже используется другим шагом.";
+            return false;
+        }
+
+        if (_onSuccess.Enabled && _onSuccess.Decision == Decision.GotoStep && string.IsNullOrWhiteSpace(_onSuccess.StepId))
+        {
+            error = "onSuccess: для GOTO_STEP укажите stepId целевого шага.";
+            return false;
+        }
+        if (_onFail.Enabled && _onFail.Decision == Decision.GotoStep && string.IsNullOrWhiteSpace(_onFail.StepId))
+        {
+            error = "onFail: для GOTO_STEP укажите stepId целевого шага.";
+            return false;
+        }
+
+        if (_onFail.Enabled)
+        {
+            var seen = new HashSet<int>();
+            foreach (var entry in _onFail.WhenCode)
+            {
+                if (entry.Code is null)
+                {
+                    error = "whenCode: укажите числовой код для каждой записи.";
+                    return false;
+                }
+                if (!seen.Add(entry.Code.Value))
+                {
+                    error = $"whenCode: код {entry.Code} встречается несколько раз.";
+                    return false;
+                }
+                if (entry.Decision == Decision.GotoStep && string.IsNullOrWhiteSpace(entry.StepId))
+                {
+                    error = $"whenCode {entry.Code}: для GOTO_STEP укажите stepId целевого шага.";
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    public sealed record EditBranchesResult(
+        string? PersistentStepId,
+        Branch? OnSuccess,
+        Branch? OnFail,
+        BreakpointConfig? Breakpoint);
+
+    private sealed class BranchModel
+    {
+        public bool Enabled { get; set; }
+        public Decision Decision { get; set; } = Decision.NextStep;
+        public string StepId { get; set; } = string.Empty;
+        public int? ErrorCode { get; set; }
+        public string ErrorMessage { get; set; } = string.Empty;
+        public List<WhenCodeEntryModel> WhenCode { get; set; } = new();
+
+        public static BranchModel From(Branch? src)
+        {
+            var m = new BranchModel { Enabled = src is not null };
+            if (src is null) return m;
+            m.Decision = src.Decision;
+            m.StepId = src.StepId ?? string.Empty;
+            m.ErrorCode = src.ErrorCode;
+            m.ErrorMessage = src.ErrorMessage ?? string.Empty;
+            if (src.WhenCode is { } w)
+            {
+                foreach (var (code, branch) in w)
+                {
+                    m.WhenCode.Add(new WhenCodeEntryModel
+                    {
+                        Code = code,
+                        Decision = branch.Decision,
+                        StepId = branch.StepId ?? string.Empty,
+                        ErrorCode = branch.ErrorCode,
+                        ErrorMessage = branch.ErrorMessage ?? string.Empty,
+                        Description = branch.Description ?? string.Empty
+                    });
+                }
+            }
+            return m;
+        }
+
+        public Branch? ToBranch(bool allowWhenCode)
+        {
+            if (!Enabled) return null;
+
+            System.Collections.Immutable.ImmutableDictionary<int, Branch>? when = null;
+            if (allowWhenCode && WhenCode.Count > 0)
+            {
+                var b = System.Collections.Immutable.ImmutableDictionary.CreateBuilder<int, Branch>();
+                foreach (var entry in WhenCode)
+                {
+                    if (entry.Code is null) continue;
+                    b[entry.Code.Value] = new Branch
+                    {
+                        Decision = entry.Decision,
+                        StepId = string.IsNullOrWhiteSpace(entry.StepId) ? null : entry.StepId.Trim(),
+                        ErrorCode = entry.Decision == Decision.BreakWorkflow ? entry.ErrorCode : null,
+                        ErrorMessage = entry.Decision == Decision.BreakWorkflow && !string.IsNullOrEmpty(entry.ErrorMessage)
+                            ? entry.ErrorMessage : null,
+                        Description = string.IsNullOrEmpty(entry.Description) ? null : entry.Description
+                    };
+                }
+                when = b.Count == 0 ? null : b.ToImmutable();
+            }
+
+            return new Branch
+            {
+                Decision = Decision,
+                StepId = Decision == Decision.GotoStep && !string.IsNullOrWhiteSpace(StepId) ? StepId.Trim() : null,
+                ErrorCode = Decision == Decision.BreakWorkflow ? ErrorCode : null,
+                ErrorMessage = Decision == Decision.BreakWorkflow && !string.IsNullOrEmpty(ErrorMessage) ? ErrorMessage : null,
+                WhenCode = when
+            };
+        }
+    }
+
+    private sealed class WhenCodeEntryModel
+    {
+        public int? Code { get; set; }
+        public Decision Decision { get; set; } = Decision.NextStep;
+        public string StepId { get; set; } = string.Empty;
+        public int? ErrorCode { get; set; }
+        public string ErrorMessage { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+    }
+}

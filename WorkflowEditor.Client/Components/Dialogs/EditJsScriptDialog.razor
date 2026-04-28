@@ -1,0 +1,47 @@
+@* Диалог редактирования шага `execute-js-script`: description (текстовое поле)
+   и script (Monaco editor с подсветкой JS). Возвращает (Description, Script). *@
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width: 720px;">
+            <MudTextField @bind-Value="_description"
+                          Label="Описание"
+                          Variant="Variant.Outlined"
+                          Lines="2"
+                          Immediate="true"
+                          AutoFocus="true" />
+
+            <div>
+                <MudText Typo="Typo.caption" Class="mb-1">JS-скрипт</MudText>
+                <MonacoJsEditor @bind-Value="_script" Height="360px" Language="javascript" />
+            </div>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Отмена</MudButton>
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   OnClick="Submit">Сохранить</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+    [Parameter] public string Description { get; set; } = string.Empty;
+    [Parameter] public string Script { get; set; } = string.Empty;
+
+    private string _description = string.Empty;
+    private string _script = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        _description = Description;
+        _script = Script;
+    }
+
+    private void Cancel() => Dialog.Cancel();
+
+    private void Submit() => Dialog.Close(DialogResult.Ok(new EditJsScriptResult(_description.Trim(), _script)));
+
+    public record EditJsScriptResult(string Description, string Script);
+}

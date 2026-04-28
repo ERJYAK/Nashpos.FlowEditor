@@ -180,6 +180,107 @@ public static class EditorReducers
             : null);
 
     [ReducerMethod]
+    public static EditorState ReduceUpdateStepBranchesAction(
+        EditorState state, UpdateStepBranchesAction action) =>
+        ReplaceStep(state, action.Name, action.StepId, step =>
+        {
+            var newPersistentId = string.IsNullOrWhiteSpace(action.NewPersistentStepId)
+                ? null
+                : action.NewPersistentStepId.Trim();
+
+            var changed = step.StepId != newPersistentId
+                       || !BranchEquals(step.OnSuccess, action.OnSuccess)
+                       || !BranchEquals(step.OnFail, action.OnFail)
+                       || !BreakpointEquals(step.Breakpoint, action.Breakpoint);
+            if (!changed) return null;
+
+            return step switch
+            {
+                BaseStep b => b with
+                {
+                    StepId = newPersistentId,
+                    OnSuccess = action.OnSuccess,
+                    OnFail = action.OnFail,
+                    Breakpoint = action.Breakpoint
+                },
+                SubflowStep s => s with
+                {
+                    StepId = newPersistentId,
+                    OnSuccess = action.OnSuccess,
+                    OnFail = action.OnFail,
+                    Breakpoint = action.Breakpoint
+                },
+                _ => step
+            };
+        });
+
+    private static bool BranchEquals(Branch? a, Branch? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        if (a.Decision != b.Decision) return false;
+        if (a.StepId != b.StepId) return false;
+        if (a.ErrorCode != b.ErrorCode) return false;
+        if (a.ErrorMessage != b.ErrorMessage) return false;
+        if (a.Description != b.Description) return false;
+
+        var aWhen = a.WhenCode;
+        var bWhen = b.WhenCode;
+        if (aWhen is null && bWhen is null) return true;
+        if (aWhen is null || bWhen is null) return false;
+        if (aWhen.Count != bWhen.Count) return false;
+        foreach (var kv in aWhen)
+        {
+            if (!bWhen.TryGetValue(kv.Key, out var other)) return false;
+            if (!BranchEquals(kv.Value, other)) return false;
+        }
+        return true;
+    }
+
+    private static bool BreakpointEquals(BreakpointConfig? a, BreakpointConfig? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        return a.Set == b.Set
+            && a.RestoreAtNextStep == b.RestoreAtNextStep
+            && a.BreakIteration == b.BreakIteration
+            && a.TimeoutMs == b.TimeoutMs;
+    }
+
+    [ReducerMethod]
+    public static EditorState ReduceUpdateStepContextStringAction(
+        EditorState state, UpdateStepContextStringAction action) =>
+        ReplaceStep(state, action.Name, action.StepId, step =>
+        {
+            var strings = step.Context?.Strings ?? ImmutableDictionary<string, string>.Empty;
+
+            if (string.IsNullOrEmpty(action.NewValue))
+            {
+                if (!strings.ContainsKey(action.Key)) return null;
+                strings = strings.Remove(action.Key);
+            }
+            else
+            {
+                if (strings.TryGetValue(action.Key, out var existing) && existing == action.NewValue)
+                    return null;
+                strings = strings.SetItem(action.Key, action.NewValue);
+            }
+
+            var newContext = (step.Context ?? new StepContext()) with
+            {
+                Strings = strings.IsEmpty ? null : strings
+            };
+            StepContext? finalCtx = newContext.IsEmpty ? null : newContext;
+
+            return step switch
+            {
+                BaseStep b => b with { Context = finalCtx },
+                SubflowStep s => s with { Context = finalCtx },
+                _ => step
+            };
+        });
+
+    [ReducerMethod]
     public static EditorState ReduceMoveStepAction(EditorState state, MoveStepAction action)
     {
         if (!state.OpenDocuments.TryGetValue(action.Name, out var editor)) return state;

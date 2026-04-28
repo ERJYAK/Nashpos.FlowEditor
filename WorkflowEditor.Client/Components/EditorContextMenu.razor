@@ -37,6 +37,13 @@
                     Перейти к subflow
                 </MudMenuItem>
             }
+            @if (SelectedSingleNode is not null)
+            {
+                <MudDivider />
+                <MudMenuItem OnClick="OnEditBranches">
+                    Условия и брейкпоинт…
+                </MudMenuItem>
+            }
             <MudDivider />
             <MudMenuItem OnClick="OnDelete" Disabled="@(_selection.Count == 0)">
                 Удалить выделенное
@@ -66,6 +73,16 @@
         {
             var subflows = _selection.OfType<SubflowNodeModel>().ToList();
             return subflows.Count == 1 ? subflows[0] : null;
+        }
+    }
+
+    // Пункт «Условия и брейкпоинт» доступен, когда выделен ровно один шаг (любого типа).
+    private WorkflowNodeModel? SelectedSingleNode
+    {
+        get
+        {
+            var nodes = _selection.OfType<WorkflowNodeModel>().ToList();
+            return nodes.Count == 1 ? nodes[0] : null;
         }
     }
 
@@ -177,6 +194,36 @@
         var cascade = confirmResult.Data is true;
 
         Dispatcher.Dispatch(new RenameSubflowRequestedAction(docName, subflow.StepId, newName, cascade));
+    }
+
+    private async Task OnEditBranches()
+    {
+        var docName = EditorState.Value.ActiveDocumentName;
+        var node = SelectedSingleNode;
+        if (docName is null || node is null) { CloseMenu(); return; }
+        if (!EditorState.Value.OpenDocuments.TryGetValue(docName, out var editor)) { CloseMenu(); return; }
+        var step = editor.Document.Steps.FirstOrDefault(s => s.Id == node.StepId);
+        if (step is null) { CloseMenu(); return; }
+
+        // Диалог должен отрисовываться поверх — закрываем меню сначала.
+        CloseMenu();
+
+        var parameters = new DialogParameters
+        {
+            { nameof(EditStepBranchesDialog.Step), step },
+            { nameof(EditStepBranchesDialog.DocumentName), docName }
+        };
+        var dialog = await Dialogs.ShowAsync<EditStepBranchesDialog>(
+            "Условия и брейкпоинт",
+            parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not EditStepBranchesDialog.EditBranchesResult edit)
+            return;
+
+        Dispatcher.Dispatch(new UpdateStepBranchesAction(
+            docName, step.Id,
+            edit.PersistentStepId, edit.OnSuccess, edit.OnFail, edit.Breakpoint));
     }
 
     private void OnGoToSubflow()

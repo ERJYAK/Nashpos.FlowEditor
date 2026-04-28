@@ -56,6 +56,12 @@ message Step {
   string description = 1;
   bool iterate = 2;
   StepContext context = 3;
+  // Persistent stepId — пишется в JSON под ключом `id`. Заполняется только если на шаг
+  // ссылаются GOTO_STEP-переходы.
+  string id = 4;
+  Branch on_success = 5;
+  Branch on_fail = 6;
+  BreakpointConfig breakpoint = 7;
   oneof kind {
     BaseStepData base = 10;
     SubflowStepData subflow = 11;
@@ -74,4 +80,31 @@ message StepContext {
   map<string, string> strings = 1;
   map<string, int64> integers = 2;
   map<string, google.protobuf.Value> objects = 3;
+}
+
+enum Decision {
+  NEXT_STEP = 0;
+  GOTO_STEP = 1;
+  BREAK_WORKFLOW = 2;
+  SILENT_BREAK_WORKFLOW = 3;
+}
+
+message Branch {
+  Decision decision = 1;
+  // Только для GOTO_STEP — id целевого шага.
+  string step_id = 2;
+  // Только для BREAK_WORKFLOW. `optional` отличает unset (null) от 0/"" в C#.
+  optional int32 error_code = 3;
+  string error_message = 4;
+  // Только в onFail. Ключ — errorCode, значение — рекурсивный Branch.
+  map<int32, Branch> when_code = 5;
+  // Описание записи (актуально для записей внутри when_code).
+  string description = 6;
+}
+
+message BreakpointConfig {
+  bool set = 1;
+  optional bool restore_at_next_step = 2;
+  optional bool break_iteration = 3;
+  optional int32 timeout_ms = 4;
 }

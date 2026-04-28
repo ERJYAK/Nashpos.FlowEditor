@@ -87,6 +87,7 @@
 
         Diagram.RegisterComponent<SubflowNodeModel, SubflowNodeWidget>();
         Diagram.RegisterComponent<BaseNodeModel, BaseNodeWidget>();
+        Diagram.RegisterComponent<JsScriptNodeModel, JsScriptNodeWidget>();
 
         Diagram.PointerDown += OnDiagramPointerDown;
         Diagram.PointerMove += OnDiagramPointerMove;
@@ -159,6 +160,8 @@
                         WorkflowNodeModel? node = step switch
                         {
                             SubflowStep s => new SubflowNodeModel(s, position),
+                            BaseStep b when b.StepKind == JsScriptNodeModel.ConstStepKind
+                                => new JsScriptNodeModel(b, position),
                             BaseStep b    => new BaseNodeModel(b, position),
                             _ => null
                         };
