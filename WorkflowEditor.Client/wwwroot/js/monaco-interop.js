@@ -38,7 +38,7 @@ window.monacoInterop = (function () {
     }
 
     return {
-        async create(elementId, value, language, dotnetRef) {
+        async create(elementId, value, language, dotnetRef, theme) {
             const monaco = await ensureMonaco();
             const el = document.getElementById(elementId);
             if (!el) return;
@@ -56,7 +56,7 @@ window.monacoInterop = (function () {
                 minimap: { enabled: false },
                 scrollBeyondLastLine: false,
                 fontSize: 13,
-                theme: 'vs-dark',
+                theme: theme || 'vs-dark',
                 wordWrap: 'on'
             });
             editor.onDidChangeModelContent(() => {
@@ -73,6 +73,11 @@ window.monacoInterop = (function () {
         setValue(elementId, value) {
             const e = editors.get(elementId);
             if (e && e.getValue() !== (value || '')) e.setValue(value || '');
+        },
+        // Тема в Monaco — глобальная (применяется ко всем editor-инстансам сразу).
+        async setTheme(themeName) {
+            const monaco = await ensureMonaco();
+            monaco.editor.setTheme(themeName || 'vs-dark');
         },
         dispose(elementId) {
             const e = editors.get(elementId);

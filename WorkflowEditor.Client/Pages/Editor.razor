@@ -72,6 +72,11 @@
                    title="Повторить (Ctrl+Y / Ctrl+Shift+Z)" />
 
     <MudSpacer />
+
+    <MudIconButton Icon="@(IsDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                   Color="Color.Inherit"
+                   OnClick="ToggleTheme"
+                   title="@(IsDarkMode ? "Включить светлую тему" : "Включить тёмную тему")" />
 </MudAppBar>
 
 @* MudFileUpload — невидимый, открывается из меню «Файл» через _fileUpload?.OpenFilePickerAsync().
@@ -157,6 +162,9 @@
     [Inject] private IDialogService Dialogs { get; set; } = null!;
     [Inject] private IFileDownloader Downloader { get; set; } = null!;
     [Inject] private ISnackbar Snackbar { get; set; } = null!;
+
+    [CascadingParameter(Name = "IsDarkMode")]  private bool IsDarkMode { get; set; }
+    [CascadingParameter(Name = "ToggleTheme")] private EventCallback ToggleTheme { get; set; }
 
     private const string DraftPrefix = "new-workflow-";
 

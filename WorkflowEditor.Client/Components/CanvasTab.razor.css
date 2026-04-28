@@ -1,7 +1,23 @@
-.canvas-wrapper {
+/* Тёмная тема — фон #1e1e1e, тёмные grid-точки, светло-серые подписи на стрелках. */
+.canvas-wrapper.dark-theme {
     background-color: #1e1e1e;
     background-image: radial-gradient(circle, #444 1px, transparent 1px);
     background-size: 20px 20px;
+}
+.canvas-wrapper.dark-theme ::deep .diagram-link div.default-link-label {
+    color: #cfcfcf;
+    background-color: rgba(40, 40, 40, 0.85);
+}
+
+/* Светлая тема — белый фон, серые grid-точки, чёрные подписи. */
+.canvas-wrapper.light-theme {
+    background-color: #ffffff;
+    background-image: radial-gradient(circle, #c8c8c8 1px, transparent 1px);
+    background-size: 20px 20px;
+}
+.canvas-wrapper.light-theme ::deep .diagram-link div.default-link-label {
+    color: #000000;
+    background-color: rgba(255, 255, 255, 0.85);
 }
 
 /* =========================================

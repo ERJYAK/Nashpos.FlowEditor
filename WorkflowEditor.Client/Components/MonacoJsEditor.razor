@@ -14,10 +14,15 @@
     [Parameter] public string Language { get; set; } = "javascript";
     [Parameter] public string Height { get; set; } = "320px";
 
+    [CascadingParameter(Name = "IsDarkMode")] private bool IsDarkMode { get; set; }
+
     private readonly string ElementId = $"monaco-{Guid.NewGuid():N}";
     private DotNetObjectReference<MonacoJsEditor>? _ref;
     private bool _initialized;
     private string _lastSetValue = string.Empty;
+    private bool? _lastTheme;
+
+    private string CurrentTheme => IsDarkMode ? "vs-dark" : "vs";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -25,7 +30,8 @@
         {
             _ref = DotNetObjectReference.Create(this);
             _lastSetValue = Value ?? string.Empty;
-            await JS.InvokeVoidAsync("monacoInterop.create", ElementId, _lastSetValue, Language, _ref);
+            _lastTheme = IsDarkMode;
+            await JS.InvokeVoidAsync("monacoInterop.create", ElementId, _lastSetValue, Language, _ref, CurrentTheme);
             _initialized = true;
             return;
         }
@@ -36,6 +42,12 @@
         {
             _lastSetValue = Value ?? string.Empty;
             await JS.InvokeVoidAsync("monacoInterop.setValue", ElementId, _lastSetValue);
+        }
+
+        if (_initialized && _lastTheme != IsDarkMode)
+        {
+            _lastTheme = IsDarkMode;
+            await JS.InvokeVoidAsync("monacoInterop.setTheme", CurrentTheme);
         }
     }
 

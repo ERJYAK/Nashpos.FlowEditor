@@ -3,6 +3,7 @@
 @inject IActionSubscriber Subscriber
 @inject ISnackbar Snackbar
 @inject IState<EditorState> EditorState
+@inject IJSRuntime JS
 
 <style>
     /* Рантайм-инъекция стилей с правильным именем класса движка */
@@ -33,19 +34,33 @@
     .invalid-node { border: 3px solid #ff4444 !important; }
 </style>
 
-<MudThemeProvider Theme="_theme" />
+<MudThemeProvider Theme="_theme" IsDarkMode="_isDarkMode" />
 <MudDialogProvider />
 <MudSnackbarProvider />
 <MudPopoverProvider />
-<MudLayout>
-    <MudMainContent>
-        @Body
-    </MudMainContent>
-</MudLayout>
+<CascadingValue Value="_isDarkMode" Name="IsDarkMode">
+    <CascadingValue Value="_toggleThemeCallback" Name="ToggleTheme">
+        <MudLayout>
+            <MudMainContent>
+                @Body
+            </MudMainContent>
+        </MudLayout>
+    </CascadingValue>
+</CascadingValue>
 
 @code {
+    private const string ThemeStorageKey = "wfe-theme";
+
+    // Источник истины темы. Cascading'ом раздаём в Editor/CanvasTab/MonacoJsEditor.
+    private bool _isDarkMode = true;
+    private EventCallback _toggleThemeCallback;
+
     private readonly MudTheme _theme = new()
     {
+        PaletteLight = new PaletteLight()
+        {
+            Primary = "#3267ff"
+        },
         PaletteDark = new PaletteDark()
         {
             Primary = "#3267ff",
@@ -57,6 +72,8 @@
 
     protected override void OnInitialized()
     {
+        _toggleThemeCallback = EventCallback.Factory.Create(this, ToggleTheme);
+
         Subscriber.SubscribeToAction<LoadWorkflowFailedAction>(this,
             a => Snackbar.Add($"Не удалось загрузить процесс: {a.ErrorMessage}", Severity.Error));
         Subscriber.SubscribeToAction<SaveWorkflowFailedAction>(this,
@@ -74,6 +91,35 @@
         });
         Subscriber.SubscribeToAction<RenameWorkflowFailedAction>(this,
             a => Snackbar.Add($"Не удалось переименовать: {a.ErrorMessage}", Severity.Error));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        // Восстанавливаем тему из localStorage. Если ключа нет — остаёмся в dark.
+        try
+        {
+            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", ThemeStorageKey);
+            if (saved == "light" && _isDarkMode)
+            {
+                _isDarkMode = false;
+                StateHasChanged();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // Страница перегружается — игнор.
+        }
+    }
+
+    private async Task ToggleTheme()
+    {
+        _isDarkMode = !_isDarkMode;
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", ThemeStorageKey, _isDarkMode ? "dark" : "light");
+        }
+        catch (JSDisconnectedException) { /* игнор */ }
     }
 
     public void Dispose() => Subscriber.UnsubscribeFromAllActions(this);

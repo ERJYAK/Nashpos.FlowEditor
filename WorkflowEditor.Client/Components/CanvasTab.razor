@@ -20,7 +20,7 @@
     .selected-node { border: 3px solid #3267ff !important; }
 </style>
 
-<div class="canvas-wrapper default-theme" style="width: 100%; height: 100%;">
+<div class="canvas-wrapper @(IsDarkMode ? "dark-theme" : "light-theme")" style="width: 100%; height: 100%;">
     <CascadingValue Value="Diagram">
         <DiagramCanvas></DiagramCanvas>
     </CascadingValue>
@@ -50,6 +50,8 @@
     [Parameter] public string Name { get; set; } = string.Empty;
     [Parameter] public EventCallback<IReadOnlyList<SelectableModel>> OnSelectionChanged { get; set; }
     [Parameter] public EventCallback<(IReadOnlyList<SelectableModel> Selection, double CanvasX, double CanvasY)> OnContextMenuRequested { get; set; }
+
+    [CascadingParameter(Name = "IsDarkMode")] private bool IsDarkMode { get; set; }
 
     private BlazorDiagram Diagram { get; set; } = new BlazorDiagram(
         new BlazorDiagramOptions { AllowPanning = false });
@@ -107,15 +109,23 @@
     // Страховка против stale-узлов: даже если @key уберут — sync обязательно вызовется
     // на каждое изменение Name, без ожидания State.StateChanged.
     private string? _lastSyncedName;
+    private bool? _lastIsDarkMode;
 
     protected override void OnParametersSet()
     {
         base.OnParametersSet();
+        var changed = false;
         if (Name != _lastSyncedName)
         {
             _lastSyncedName = Name;
-            SyncStateToDiagram();
+            changed = true;
         }
+        if (_lastIsDarkMode != IsDarkMode)
+        {
+            _lastIsDarkMode = IsDarkMode;
+            changed = true;
+        }
+        if (changed) SyncStateToDiagram();
     }
 
     protected override Task OnAfterRenderAsync(bool firstRender)
@@ -294,22 +304,24 @@
             l.SourceStepId == srcId && l.TargetStepId == tgtId);
     }
 
-    private static void ApplyLinkStyling(
+    private void ApplyLinkStyling(
         Blazor.Diagrams.Core.Models.Base.BaseLinkModel diagramLink,
         EditorLink stateLink)
     {
+        // Цвета веток (зелёный/красный/оранжевый) контрастны на любом фоне и не меняются
+        // от темы. Default-стрелки подкрашиваются: чёрные на светлом, светло-серые на тёмном.
+        var defaultColor = IsDarkMode ? "#cfcfcf" : "#000000";
         var color = stateLink.Kind switch
         {
             EditorLinkKind.OnSuccess => "#4CAF50",
             EditorLinkKind.OnFail    => "#F44336",
             EditorLinkKind.WhenCode  => "#FF9800",
-            _ => null
+            _ => defaultColor
         };
-        // Color живёт на LinkModel, а не BaseLinkModel — но мы создаём именно LinkModel.
-        if (color is not null && diagramLink is LinkModel lm)
+        if (diagramLink is LinkModel lm)
         {
             lm.Color = color;
-            lm.Width = 2.5;
+            lm.Width = stateLink.Kind == EditorLinkKind.Default ? 2 : 2.5;
         }
 
         var label = stateLink.Kind switch
