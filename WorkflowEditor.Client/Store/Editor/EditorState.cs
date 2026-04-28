@@ -63,8 +63,9 @@ public sealed record EditorState
 }
 
 // Открытый в редакторе документ: бизнес-данные + UI-only слой (визуальные связи + позиции узлов).
-// Ни Links, ни NodePositions не уезжают на сервер — это разметка холста, существующая только
-// в браузерной сессии. Сервер видит только `Document.Steps` (порядок = семантика).
+// Ни Links, ни NodePositions, ни VirtualStops не уезжают на сервер — это разметка холста,
+// существующая только в браузерной сессии. Сервер видит только `Document.Steps`
+// (включая onSuccess/onFail/breakpoint у шагов).
 public sealed record EditorDocument
 {
     public required WorkflowDocument Document { get; init; }
@@ -72,6 +73,24 @@ public sealed record EditorDocument
         ImmutableDictionary<string, EditorLink>.Empty;
     public ImmutableDictionary<string, CanvasPosition> NodePositions { get; init; } =
         ImmutableDictionary<string, CanvasPosition>.Empty;
+    // Виртуальные STOP-узлы для веток BREAK_WORKFLOW / SILENT_BREAK_WORKFLOW. Не входят
+    // в Document.Steps — генерируются из Branch'ей шагов и нужны только для отображения.
+    public ImmutableDictionary<string, StopNodeInfo> VirtualStops { get; init; } =
+        ImmutableDictionary<string, StopNodeInfo>.Empty;
+}
+
+// Виртуальный узел-«хвост» для BREAK_WORKFLOW / SILENT_BREAK_WORKFLOW.
+// `Id` — детерминированный (см. BranchLinkBuilder), чтобы при пересборке связей сохранять
+// позицию узла на канвасе. `OwnerStepId` — шаг, у которого эта ветка задана.
+public sealed record StopNodeInfo
+{
+    public required string Id { get; init; }
+    public required string OwnerStepId { get; init; }
+    public required EditorLinkKind BranchKind { get; init; }
+    public int? WhenCode { get; init; }
+    public required bool IsSilent { get; init; }
+    public int? ErrorCode { get; init; }
+    public string? ErrorMessage { get; init; }
 }
 
 // Связь между двумя узлами на холсте. Ориентированная: source → target.

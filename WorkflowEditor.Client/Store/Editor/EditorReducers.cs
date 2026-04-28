@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Fluxor;
 using WorkflowEditor.Client.Services.Layout;
+using WorkflowEditor.Client.Services.Topology;
 using WorkflowEditor.Core.Models;
 using WorkflowEditor.Core.Models.Steps;
 
@@ -145,16 +146,27 @@ public static class EditorReducers
         var newSteps = editor.Document.Steps.RemoveAll(s => idSet.Contains(s.Id));
         if (newSteps.Count == editor.Document.Steps.Count) return state;
 
+        // Удаляем STOP-узлы, owner которых выпал. Связи на/от удалённых шагов и узлов — тоже.
+        var newStops = editor.VirtualStops
+            .Where(kv => !idSet.Contains(kv.Value.OwnerStepId))
+            .ToImmutableDictionary(kv => kv.Key, kv => kv.Value);
+        var deadStopIds = editor.VirtualStops.Keys.Where(k => !newStops.ContainsKey(k)).ToHashSet();
+
         var newLinks = editor.Links
-            .Where(l => !idSet.Contains(l.Value.SourceStepId) && !idSet.Contains(l.Value.TargetStepId))
+            .Where(l => !idSet.Contains(l.Value.SourceStepId)
+                     && !idSet.Contains(l.Value.TargetStepId)
+                     && !deadStopIds.Contains(l.Value.TargetStepId))
             .ToImmutableDictionary(kv => kv.Key, kv => kv.Value);
 
-        var newPositions = editor.NodePositions.RemoveRange(action.StepIds);
+        var newPositions = editor.NodePositions
+            .RemoveRange(action.StepIds)
+            .RemoveRange(deadStopIds);
 
         var updated = editor with
         {
             Document = editor.Document with { Steps = newSteps },
             Links = newLinks,
+            VirtualStops = newStops,
             NodePositions = newPositions
         };
         return state.WithMutation(action.Name, updated);
@@ -181,38 +193,65 @@ public static class EditorReducers
 
     [ReducerMethod]
     public static EditorState ReduceUpdateStepBranchesAction(
-        EditorState state, UpdateStepBranchesAction action) =>
-        ReplaceStep(state, action.Name, action.StepId, step =>
+        EditorState state, UpdateStepBranchesAction action)
+    {
+        if (!state.OpenDocuments.TryGetValue(action.Name, out var editor)) return state;
+        var index = editor.Document.Steps.FindIndex(s => s.Id == action.StepId);
+        if (index < 0) return state;
+
+        var step = editor.Document.Steps[index];
+        var newPersistentId = string.IsNullOrWhiteSpace(action.NewPersistentStepId)
+            ? null
+            : action.NewPersistentStepId.Trim();
+
+        var changed = step.StepId != newPersistentId
+                   || !BranchEquals(step.OnSuccess, action.OnSuccess)
+                   || !BranchEquals(step.OnFail, action.OnFail)
+                   || !BreakpointEquals(step.Breakpoint, action.Breakpoint);
+        if (!changed) return state;
+
+        var mutated = step switch
         {
-            var newPersistentId = string.IsNullOrWhiteSpace(action.NewPersistentStepId)
-                ? null
-                : action.NewPersistentStepId.Trim();
-
-            var changed = step.StepId != newPersistentId
-                       || !BranchEquals(step.OnSuccess, action.OnSuccess)
-                       || !BranchEquals(step.OnFail, action.OnFail)
-                       || !BreakpointEquals(step.Breakpoint, action.Breakpoint);
-            if (!changed) return null;
-
-            return step switch
+            BaseStep b => (WorkflowStep)(b with
             {
-                BaseStep b => b with
-                {
-                    StepId = newPersistentId,
-                    OnSuccess = action.OnSuccess,
-                    OnFail = action.OnFail,
-                    Breakpoint = action.Breakpoint
-                },
-                SubflowStep s => s with
-                {
-                    StepId = newPersistentId,
-                    OnSuccess = action.OnSuccess,
-                    OnFail = action.OnFail,
-                    Breakpoint = action.Breakpoint
-                },
-                _ => step
-            };
-        });
+                StepId = newPersistentId,
+                OnSuccess = action.OnSuccess,
+                OnFail = action.OnFail,
+                Breakpoint = action.Breakpoint
+            }),
+            SubflowStep s => s with
+            {
+                StepId = newPersistentId,
+                OnSuccess = action.OnSuccess,
+                OnFail = action.OnFail,
+                Breakpoint = action.Breakpoint
+            },
+            _ => step
+        };
+
+        var newSteps = editor.Document.Steps.SetItem(index, mutated);
+
+        // Пересобираем Links/STOP-узлы для отредактированного шага.
+        var (newLinks, newStops) = BranchLinkBuilder.RebuildForStep(
+            mutated.Id, newSteps, editor.Links, editor.VirtualStops);
+
+        // Удаляем позиции осиротевших STOP-узлов, чтобы не накапливать мусор.
+        var newPositions = editor.NodePositions;
+        foreach (var posId in newPositions.Keys.ToList())
+        {
+            if (BranchLinkBuilder.IsStopId(posId) && !newStops.ContainsKey(posId))
+                newPositions = newPositions.Remove(posId);
+        }
+
+        var updated = editor with
+        {
+            Document = editor.Document with { Steps = newSteps },
+            Links = newLinks,
+            VirtualStops = newStops,
+            NodePositions = newPositions
+        };
+        return state.WithMutation(action.Name, updated);
+    }
 
     private static bool BranchEquals(Branch? a, Branch? b)
     {
@@ -581,26 +620,16 @@ public static class EditorReducers
 
     // --- Helpers ---------------------------------------------------------------
 
-    private static EditorDocument NewEditorDocument(WorkflowDocument document) =>
-        new()
+    private static EditorDocument NewEditorDocument(WorkflowDocument document)
+    {
+        var built = BranchLinkBuilder.Build(document.Steps);
+        return new EditorDocument
         {
             Document = document,
-            Links = LinearLinks(document.Steps),
+            Links = built.Links,
+            VirtualStops = built.VirtualStops,
             NodePositions = LinearAutoLayout.ForSteps(document.Steps)
         };
-
-    // Линейный граф: step[i] → step[i+1].
-    private static ImmutableDictionary<string, EditorLink> LinearLinks(IReadOnlyList<WorkflowStep> steps)
-    {
-        if (steps.Count < 2) return ImmutableDictionary<string, EditorLink>.Empty;
-
-        var builder = ImmutableDictionary.CreateBuilder<string, EditorLink>();
-        for (var i = 0; i < steps.Count - 1; i++)
-        {
-            var id = Guid.NewGuid().ToString();
-            builder[id] = new EditorLink { Id = id, SourceStepId = steps[i].Id, TargetStepId = steps[i + 1].Id };
-        }
-        return builder.ToImmutable();
     }
 
     private static EditorState ReplaceStep(

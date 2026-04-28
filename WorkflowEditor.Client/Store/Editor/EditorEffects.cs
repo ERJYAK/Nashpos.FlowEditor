@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Fluxor;
@@ -60,14 +61,27 @@ public sealed class EditorEffects(IWorkflowApi api, IState<EditorState> state)
             return;
         }
 
-        var ordering = StepOrderResolver.Resolve(editor.Document.Steps, editor.Links);
-        if (!ordering.IsSuccess)
+        // Ветвящиеся графы (с явными onSuccess/onFail) не редуцируются к линейной цепочке —
+        // в этом случае доверяем порядку Steps в Document. Линейные flows прогоняем через
+        // resolver, чтобы порядок отражал нарисованные связи.
+        var hasBranching = editor.Document.Steps.Any(s => s.OnSuccess is not null || s.OnFail is not null);
+        ImmutableList<WorkflowStep> orderedSteps;
+        if (hasBranching)
         {
-            dispatcher.Dispatch(new SaveWorkflowFailedAction(action.Name, ordering.ErrorMessage!));
-            return;
+            orderedSteps = editor.Document.Steps;
+        }
+        else
+        {
+            var ordering = StepOrderResolver.Resolve(editor.Document.Steps, editor.Links);
+            if (!ordering.IsSuccess)
+            {
+                dispatcher.Dispatch(new SaveWorkflowFailedAction(action.Name, ordering.ErrorMessage!));
+                return;
+            }
+            orderedSteps = ordering.Ordered!;
         }
 
-        var documentToSave = editor.Document with { Steps = ordering.Ordered! };
+        var documentToSave = editor.Document with { Steps = orderedSteps };
         var result = await api.SaveAsync(documentToSave);
         if (result.IsSuccess)
         {

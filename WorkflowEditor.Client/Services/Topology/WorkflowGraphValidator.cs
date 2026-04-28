@@ -25,6 +25,11 @@ public static class WorkflowGraphValidator
         if (steps.Count == 1)
             return Result.Valid();
 
+        // Если в графе есть ветвящиеся шаги (явный onSuccess/onFail) — линейная топология
+        // не применима. Доверяем порядку Steps в Document; пользователь сам отвечает.
+        if (steps.Any(s => s.OnSuccess is not null || s.OnFail is not null))
+            return Result.Valid();
+
         var stepIds = steps.Select(s => s.Id).ToHashSet();
         var inDegree = stepIds.ToDictionary(id => id, _ => 0);
         var outDegree = stepIds.ToDictionary(id => id, _ => 0);
@@ -32,6 +37,7 @@ public static class WorkflowGraphValidator
 
         foreach (var link in links.Values)
         {
+            // Связи к STOP-узлам не считаем — они UI-only.
             if (!stepIds.Contains(link.SourceStepId) || !stepIds.Contains(link.TargetStepId)) continue;
             outDegree[link.SourceStepId]++;
             inDegree[link.TargetStepId]++;

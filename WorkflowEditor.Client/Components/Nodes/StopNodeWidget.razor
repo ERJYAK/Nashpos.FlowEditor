@@ -1,0 +1,37 @@
+@* Виджет виртуального STOP-узла. Отображает «BREAK» (красный) или «SILENT_BREAK» (серый),
+   плюс errorCode/errorMessage если они заданы (только для BREAK_WORKFLOW). *@
+
+<MudPaper Elevation="3" Class="pa-2" Style="@CardStyle">
+    <MudStack Spacing="0">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+            <MudIcon Icon="@Icon"
+                     Size="Size.Small"
+                     Style="color: white;" />
+            <MudText Typo="Typo.caption" Style="color: white; font-weight: 600;">@Label</MudText>
+        </MudStack>
+        @if (Node.ErrorCode is { } code)
+        {
+            <MudText Typo="Typo.caption" Style="color: white;">@($"code {code}")</MudText>
+        }
+        @if (!string.IsNullOrEmpty(Node.ErrorMessage))
+        {
+            <MudText Typo="Typo.caption" Style="color: white; opacity: 0.85;">@Node.ErrorMessage</MudText>
+        }
+    </MudStack>
+
+    @foreach (var port in Node.Ports)
+    {
+        <PortRenderer Port="port" />
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public StopNodeModel Node { get; set; } = null!;
+
+    private string Label => Node.IsSilent ? "SILENT_BREAK" : "BREAK_WORKFLOW";
+    private string Icon => Node.IsSilent ? Icons.Material.Filled.StopCircle : Icons.Material.Filled.Block;
+
+    private string CardStyle =>
+        $"min-width: 130px; max-width: 220px; cursor: default; position: relative; overflow: visible; " +
+        $"background-color: {(Node.IsSilent ? "#5a5a5a" : "#9e2a2a")};";
+}

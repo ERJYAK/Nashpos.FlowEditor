@@ -88,6 +88,7 @@
         Diagram.RegisterComponent<SubflowNodeModel, SubflowNodeWidget>();
         Diagram.RegisterComponent<BaseNodeModel, BaseNodeWidget>();
         Diagram.RegisterComponent<JsScriptNodeModel, JsScriptNodeWidget>();
+        Diagram.RegisterComponent<StopNodeModel, StopNodeWidget>();
 
         Diagram.PointerDown += OnDiagramPointerDown;
         Diagram.PointerMove += OnDiagramPointerMove;
@@ -141,13 +142,21 @@
             {
                 var newlyAdded = new List<SelectableModel>();
 
-                // --- Узлы ---
+                // --- Узлы (steps + virtual stops) ---
                 var stepIds = editor.Document.Steps.Select(s => s.Id).ToHashSet();
-                var nodeById = Diagram.Nodes.OfType<WorkflowNodeModel>().ToDictionary(n => n.StepId);
+                var stopIds = editor.VirtualStops.Keys.ToHashSet();
+
+                // Общий словарь по identity-id (StepId для шагов, StopId для STOP-узлов).
+                var nodeById = new Dictionary<string, NodeModel>();
+                foreach (var n in Diagram.Nodes)
+                {
+                    var key = NodeIdentity(n);
+                    if (key is not null) nodeById[key] = n;
+                }
 
                 var nodesToRemove = nodeById
-                    .Where(kv => !stepIds.Contains(kv.Key))
-                    .Select(kv => (NodeModel)kv.Value)
+                    .Where(kv => !stepIds.Contains(kv.Key) && !stopIds.Contains(kv.Key))
+                    .Select(kv => kv.Value)
                     .ToList();
                 Diagram.Nodes.Remove(nodesToRemove);
 
@@ -172,19 +181,27 @@
                             newlyAdded.Add(node);
                         }
                     }
-                    else
+                    else if (existing is WorkflowNodeModel wExisting)
                     {
-                        if (existing.Title != step.Description)
+                        if (wExisting.Title != step.Description)
                         {
-                            existing.Title = step.Description;
-                            existing.Refresh();
+                            wExisting.Title = step.Description;
+                            wExisting.Refresh();
                         }
-                        existing.MarkSynced(position);
+                        wExisting.MarkSynced(position);
                     }
                 }
 
+                foreach (var (stopId, info) in editor.VirtualStops)
+                {
+                    if (nodeById.ContainsKey(stopId)) continue;
+                    var position = editor.NodePositions.GetValueOrDefault(stopId, AutoStopPosition(info, editor));
+                    var node = new StopNodeModel(info, position);
+                    Diagram.Nodes.Add(node);
+                    nodeById[stopId] = node;
+                }
+
                 // --- Связи ---
-                var stateLinkIds = editor.Links.Keys.ToHashSet();
                 var diagramLinkPairs = Diagram.Links
                     .Select(l => (Diagram: l, State: TryMatchToState(l, editor)))
                     .ToList();
@@ -194,6 +211,13 @@
                     .Select(p => p.Diagram)
                     .ToList();
                 Diagram.Links.Remove(linksToRemove);
+
+                // Обновляем стилизацию у уже существующих связей (могла поменяться ветка).
+                foreach (var (diagramLink, stateLink) in diagramLinkPairs)
+                {
+                    if (stateLink is null) continue;
+                    ApplyLinkStyling(diagramLink, stateLink);
+                }
 
                 var existingStateLinkIds = diagramLinkPairs
                     .Where(p => p.State is not null)
@@ -214,6 +238,7 @@
                     {
                         TargetMarker = LinkMarker.Arrow
                     };
+                    ApplyLinkStyling(diagramLink, link);
                     Diagram.Links.Add(diagramLink);
                 }
 
@@ -232,17 +257,72 @@
         });
     }
 
+    private static string? NodeIdentity(NodeModel node) => node switch
+    {
+        WorkflowNodeModel w => w.StepId,
+        StopNodeModel s => s.StopId,
+        _ => null
+    };
+
+    private static CanvasPosition AutoStopPosition(StopNodeInfo info, EditorDocument editor)
+    {
+        // Кладём STOP справа от owner-узла, разнося по веткам.
+        var basePos = editor.NodePositions.GetValueOrDefault(info.OwnerStepId, new CanvasPosition(0, 0));
+        var dx = 280;
+        var dy = info.BranchKind switch
+        {
+            EditorLinkKind.OnSuccess => -40,
+            EditorLinkKind.OnFail => 80,
+            EditorLinkKind.WhenCode => 160 + (info.WhenCode ?? 0) % 5 * 40,
+            _ => 0
+        };
+        return new CanvasPosition(basePos.X + dx, basePos.Y + dy);
+    }
+
     private static EditorLink? TryMatchToState(
         Blazor.Diagrams.Core.Models.Base.BaseLinkModel diagramLink,
         EditorDocument editor)
     {
         var sourcePort = (diagramLink.Source as SinglePortAnchor)?.Port;
         var targetPort = (diagramLink.Target as SinglePortAnchor)?.Port;
-        if (sourcePort?.Parent is not WorkflowNodeModel src) return null;
-        if (targetPort?.Parent is not WorkflowNodeModel tgt) return null;
+
+        var srcId = sourcePort?.Parent is not null ? NodeIdentity(sourcePort.Parent as NodeModel ?? throw new InvalidOperationException()) : null;
+        var tgtId = targetPort?.Parent is not null ? NodeIdentity(targetPort.Parent as NodeModel ?? throw new InvalidOperationException()) : null;
+        if (srcId is null || tgtId is null) return null;
 
         return editor.Links.Values.FirstOrDefault(l =>
-            l.SourceStepId == src.StepId && l.TargetStepId == tgt.StepId);
+            l.SourceStepId == srcId && l.TargetStepId == tgtId);
+    }
+
+    private static void ApplyLinkStyling(
+        Blazor.Diagrams.Core.Models.Base.BaseLinkModel diagramLink,
+        EditorLink stateLink)
+    {
+        var color = stateLink.Kind switch
+        {
+            EditorLinkKind.OnSuccess => "#4CAF50",
+            EditorLinkKind.OnFail    => "#F44336",
+            EditorLinkKind.WhenCode  => "#FF9800",
+            _ => null
+        };
+        // Color живёт на LinkModel, а не BaseLinkModel — но мы создаём именно LinkModel.
+        if (color is not null && diagramLink is LinkModel lm)
+        {
+            lm.Color = color;
+            lm.Width = 2.5;
+        }
+
+        var label = stateLink.Kind switch
+        {
+            EditorLinkKind.OnSuccess => "onSuccess",
+            EditorLinkKind.OnFail    => "onFail",
+            EditorLinkKind.WhenCode  => $"when {stateLink.WhenCode}",
+            _ => null
+        };
+
+        diagramLink.Labels.Clear();
+        if (label is not null)
+            diagramLink.AddLabel(label);
     }
 
     private IReadOnlyList<SelectableModel> CurrentSelection() =>
@@ -324,6 +404,12 @@
 
                 Dispatcher.Dispatch(new MoveStepAction(Name, node.StepId, current));
                 node.MarkSynced(current);
+            }
+            // Позиции STOP-узлов тоже сохраняем — иначе они «прыгают» к auto-position при ресинке.
+            foreach (var stopNode in Diagram.Nodes.OfType<StopNodeModel>())
+            {
+                var current = new CanvasPosition(stopNode.Position.X, stopNode.Position.Y);
+                Dispatcher.Dispatch(new MoveStepAction(Name, stopNode.StopId, current));
             }
         }
         else if (e.Button is 2)
@@ -422,10 +508,17 @@
             if (_isSyncing) return;
             var sp = (l.Source as SinglePortAnchor)?.Port;
             var tp = (newTarget as SinglePortAnchor)?.Port;
+            // Связи к/от STOP-узлов управляются веткой шага — пользователь их рисовать не может.
+            if (sp?.Parent is StopNodeModel || tp?.Parent is StopNodeModel)
+            {
+                Snackbar.Add("Связи STOP-узла настраиваются через «Условия и брейкпоинт»",
+                    MudBlazor.Severity.Warning);
+                Diagram.Links.Remove(l);
+                return;
+            }
             if (sp?.Parent is not WorkflowNodeModel src) return;
             if (tp?.Parent is not WorkflowNodeModel tgt) return;
 
-            // Линейная цепочка: запрещаем самоссылку и >1 исходящую/входящую.
             if (src.StepId == tgt.StepId)
             {
                 Snackbar.Add("Шаг не может ссылаться на самого себя", MudBlazor.Severity.Warning);
@@ -434,15 +527,14 @@
             }
             if (State.Value.OpenDocuments.TryGetValue(Name, out var editor))
             {
-                if (editor.Links.Values.Any(existing => existing.TargetStepId == tgt.StepId))
+                // Дефолтная (Default-Kind) связь у источника — не более одной. Ветвящиеся связи
+                // (OnSuccess/OnFail/WhenCode) не считаем — они приходят из Branch'ей.
+                if (editor.Links.Values.Any(existing =>
+                        existing.SourceStepId == src.StepId
+                        && existing.Kind == EditorLinkKind.Default))
                 {
-                    Snackbar.Add("У шага уже есть входящая связь", MudBlazor.Severity.Warning);
-                    Diagram.Links.Remove(l);
-                    return;
-                }
-                if (editor.Links.Values.Any(existing => existing.SourceStepId == src.StepId))
-                {
-                    Snackbar.Add("У шага уже есть исходящая связь", MudBlazor.Severity.Warning);
+                    Snackbar.Add("У шага уже есть исходящая связь — задайте onSuccess/onFail в «Условия и брейкпоинт»",
+                        MudBlazor.Severity.Warning);
                     Diagram.Links.Remove(l);
                     return;
                 }
@@ -479,6 +571,7 @@
     private void OnNodeRemoved(NodeModel node)
     {
         if (_isSyncing) return;
+        // STOP-узлы не диспатчат RemoveStepsAction — они автогенерируются по веткам шагов.
         if (node is WorkflowNodeModel wNode)
             Dispatcher.Dispatch(new RemoveStepsAction(Name, [wNode.StepId]));
     }
