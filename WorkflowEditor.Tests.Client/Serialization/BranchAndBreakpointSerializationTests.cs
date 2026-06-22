@@ -4,7 +4,7 @@ using WorkflowEditor.Core.Models;
 using WorkflowEditor.Core.Models.Steps;
 using WorkflowEditor.Core.Serialization;
 
-namespace WorkflowEditor.Tests.Server.Serialization;
+namespace WorkflowEditor.Tests.Client.Serialization;
 
 // Round-trip JSON ⇒ модель ⇒ JSON для условных шагов (примеры из ТЗ),
 // а также проверка плоских полей брейкпоинта.
@@ -144,8 +144,8 @@ public class BranchAndBreakpointSerializationTests
         var back = Deserialize<WorkflowStep>(json);
 
         back.OnFail!.WhenCode!.Should().ContainKey(5600);
-        back.OnFail.WhenCode[5600].Decision.Should().Be(Decision.BreakWorkflow);
-        back.OnFail.WhenCode[5600].Description.Should().Be("Boom");
+        back.OnFail.WhenCode![5600].Decision.Should().Be(Decision.BreakWorkflow);
+        back.OnFail.WhenCode![5600].Description.Should().Be("Boom");
     }
 
     [Fact]

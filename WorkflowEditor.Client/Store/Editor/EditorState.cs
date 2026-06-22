@@ -7,9 +7,7 @@ namespace WorkflowEditor.Client.Store.Editor;
 [FeatureState]
 public sealed record EditorState
 {
-    public bool IsLoading { get; init; }
-
-    // Открытые в редакторе документы. Ключ — Name (он же ключ хранения и таргет subflow).
+    // Открытые в редакторе документы. Ключ — Name (он же таргет subflow).
     public ImmutableDictionary<string, EditorDocument> OpenDocuments { get; init; } =
         ImmutableDictionary<string, EditorDocument>.Empty;
 
@@ -17,13 +15,10 @@ public sealed record EditorState
 
     public string? EditingStepId { get; init; }
 
-    // Кэш чужих процессов — для отображения вложенных шагов в SubflowNodeWidget.
+    // Кэш ранее открытых/импортированных процессов текущей сессии — для отображения
+    // вложенных шагов в SubflowNodeWidget и для «проваливания» в subflow.
     public ImmutableDictionary<string, WorkflowDocument> SubflowCache { get; init; } =
         ImmutableDictionary<string, WorkflowDocument>.Empty;
-
-    // Имена subflow, которые сейчас грузятся, — антишторм против повторных fetch-ей.
-    public ImmutableHashSet<string> LoadingSubflows { get; init; } =
-        ImmutableHashSet<string>.Empty;
 
     public ImmutableHashSet<string> DirtyDocuments { get; init; } =
         ImmutableHashSet<string>.Empty;
@@ -51,7 +46,7 @@ public sealed record EditorState
     public ImmutableList<string> TabOrder { get; init; } = ImmutableList<string>.Empty;
 
     // «Корзина» закрытых вкладок текущей сессии. Заполняется ReduceCloseTabAction,
-    // очищается при ReduceOpenWorkflowAction/LoadWorkflowSuccessAction (документ снова открыт)
+    // очищается при ReduceOpenWorkflowAction (документ снова открыт)
     // и при ReduceRestoreClosedDocumentAction. Не персистится — теряется при F5.
     public ImmutableDictionary<string, ClosedDocumentEntry> ClosedDocuments { get; init; } =
         ImmutableDictionary<string, ClosedDocumentEntry>.Empty;

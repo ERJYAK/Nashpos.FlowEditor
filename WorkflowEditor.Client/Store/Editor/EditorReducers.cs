@@ -95,64 +95,6 @@ public static class EditorReducers
         };
     }
 
-    // --- Загрузка/сохранение --------------------------------------------------
-
-    [ReducerMethod]
-    public static EditorState ReduceLoadWorkflowAction(EditorState state, LoadWorkflowAction _) =>
-        state with { IsLoading = true };
-
-    [ReducerMethod]
-    public static EditorState ReduceLoadWorkflowSuccessAction(EditorState state, LoadWorkflowSuccessAction action)
-    {
-        var editor = NewEditorDocument(action.Document);
-        return state with
-        {
-            IsLoading = false,
-            OpenDocuments = state.OpenDocuments.SetItem(action.Document.Name, editor),
-            ActiveDocumentName = action.Document.Name,
-            DirtyDocuments = state.DirtyDocuments.Remove(action.Document.Name),
-            UndoStacks = state.UndoStacks.Remove(action.Document.Name),
-            RedoStacks = state.RedoStacks.Remove(action.Document.Name),
-            SubflowCache = state.SubflowCache.SetItem(action.Document.Name, action.Document),
-            InvalidStepIds = state.InvalidStepIds.Remove(action.Document.Name),
-            TabOrder = state.TabOrder.Contains(action.Document.Name)
-                ? state.TabOrder
-                : state.TabOrder.Add(action.Document.Name),
-            ClosedDocuments = state.ClosedDocuments.Remove(action.Document.Name)
-        };
-    }
-
-    [ReducerMethod]
-    public static EditorState ReduceLoadWorkflowFailedAction(EditorState state, LoadWorkflowFailedAction _) =>
-        state with { IsLoading = false };
-
-    [ReducerMethod]
-    public static EditorState ReduceSaveWorkflowSuccessAction(EditorState state, SaveWorkflowSuccessAction action) =>
-        state with
-        {
-            DirtyDocuments = state.DirtyDocuments.Remove(action.Name),
-            // Любое сохранение инвалидирует кэш, чтобы subflow-узлы перезагрузили актуальные шаги.
-            SubflowCache = state.SubflowCache.Remove(action.Name)
-        };
-
-    // --- Subflow-кэш ----------------------------------------------------------
-
-    [ReducerMethod]
-    public static EditorState ReduceLoadSubflowAction(EditorState state, LoadSubflowAction action) =>
-        state with { LoadingSubflows = state.LoadingSubflows.Add(action.Name) };
-
-    [ReducerMethod]
-    public static EditorState ReduceLoadSubflowSuccessAction(EditorState state, LoadSubflowSuccessAction action) =>
-        state with
-        {
-            SubflowCache = state.SubflowCache.SetItem(action.Name, action.Document),
-            LoadingSubflows = state.LoadingSubflows.Remove(action.Name)
-        };
-
-    [ReducerMethod]
-    public static EditorState ReduceLoadSubflowFailedAction(EditorState state, LoadSubflowFailedAction action) =>
-        state with { LoadingSubflows = state.LoadingSubflows.Remove(action.Name) };
-
     // --- Мутации шагов --------------------------------------------------------
 
     [ReducerMethod]

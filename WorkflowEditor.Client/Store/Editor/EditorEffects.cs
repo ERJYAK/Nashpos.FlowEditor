@@ -1,16 +1,13 @@
-using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Fluxor;
-using WorkflowEditor.Client.Services.Api;
-using WorkflowEditor.Client.Services.Topology;
 using WorkflowEditor.Core.Models;
 using WorkflowEditor.Core.Models.Steps;
 using WorkflowEditor.Core.Serialization;
 
 namespace WorkflowEditor.Client.Store.Editor;
 
-public sealed class EditorEffects(IWorkflowApi api, IState<EditorState> state)
+public sealed class EditorEffects(IState<EditorState> state)
 {
     private static readonly JsonSerializerOptions JsonOptions = JsonConfiguration.GetOptions();
     private static readonly Regex NameRegex = new(@"^[a-z0-9][a-z0-9-]*$", RegexOptions.Compiled);
@@ -35,114 +32,26 @@ public sealed class EditorEffects(IWorkflowApi api, IState<EditorState> state)
     }
 
     [EffectMethod]
-    public async Task HandleLoadWorkflow(LoadWorkflowAction action, IDispatcher dispatcher)
+    public Task HandleOpenSubflow(OpenSubflowAction action, IDispatcher dispatcher)
     {
-        var result = await api.GetAsync(action.Name);
-        if (result.IsSuccess && result.Value is not null)
-        {
-            dispatcher.Dispatch(new LoadWorkflowSuccessAction(result.Value));
-            return;
-        }
-
-        var message = result.Outcome switch
-        {
-            ApiOutcome.NotFound => $"Процесс «{action.Name}» не найден",
-            _ => result.ErrorMessage ?? $"Не удалось загрузить процесс «{action.Name}»"
-        };
-        dispatcher.Dispatch(new LoadWorkflowFailedAction(action.Name, message));
-    }
-
-    [EffectMethod]
-    public async Task HandleSaveWorkflow(SaveWorkflowAction action, IDispatcher dispatcher)
-    {
-        if (!state.Value.OpenDocuments.TryGetValue(action.Name, out var editor))
-        {
-            dispatcher.Dispatch(new SaveWorkflowFailedAction(action.Name, "Документ не найден в памяти"));
-            return;
-        }
-
-        // Ветвящиеся графы (с явными onSuccess/onFail) не редуцируются к линейной цепочке —
-        // в этом случае доверяем порядку Steps в Document. Линейные flows прогоняем через
-        // resolver, чтобы порядок отражал нарисованные связи.
-        var hasBranching = editor.Document.Steps.Any(s => s.OnSuccess is not null || s.OnFail is not null);
-        ImmutableList<WorkflowStep> orderedSteps;
-        if (hasBranching)
-        {
-            orderedSteps = editor.Document.Steps;
-        }
-        else
-        {
-            var ordering = StepOrderResolver.Resolve(editor.Document.Steps, editor.Links);
-            if (!ordering.IsSuccess)
-            {
-                dispatcher.Dispatch(new SaveWorkflowFailedAction(action.Name, ordering.ErrorMessage!));
-                return;
-            }
-            orderedSteps = ordering.Ordered!;
-        }
-
-        var documentToSave = editor.Document with { Steps = orderedSteps };
-        var result = await api.SaveAsync(documentToSave);
-        if (result.IsSuccess)
-        {
-            dispatcher.Dispatch(new SaveWorkflowSuccessAction(action.Name));
-            return;
-        }
-
-        var message = result.ErrorMessage ?? result.Outcome.ToString();
-        dispatcher.Dispatch(new SaveWorkflowFailedAction(action.Name, message));
-    }
-
-    [EffectMethod]
-    public async Task HandleLoadSubflow(LoadSubflowAction action, IDispatcher dispatcher)
-    {
-        var result = await api.GetAsync(action.Name);
-        if (result.IsSuccess && result.Value is not null)
-        {
-            dispatcher.Dispatch(new LoadSubflowSuccessAction(action.Name, result.Value));
-            return;
-        }
-
-        // Гонка: пока шёл async-fetch, кэш мог быть заполнен через импорт файла
-        // или открытие вкладки. Это не ошибка — отдаём готовые данные.
-        if (state.Value.OpenDocuments.TryGetValue(action.Name, out var open))
-        {
-            dispatcher.Dispatch(new LoadSubflowSuccessAction(action.Name, open.Document));
-            return;
-        }
-        if (state.Value.SubflowCache.TryGetValue(action.Name, out var cached))
-        {
-            dispatcher.Dispatch(new LoadSubflowSuccessAction(action.Name, cached));
-            return;
-        }
-
-        var message = result.Outcome switch
-        {
-            ApiOutcome.NotFound => $"Подпроцесс «{action.Name}» не существует",
-            _ => result.ErrorMessage ?? $"Не удалось загрузить подпроцесс «{action.Name}»"
-        };
-        dispatcher.Dispatch(new LoadSubflowFailedAction(action.Name, message));
-    }
-
-    [EffectMethod]
-    public async Task HandleOpenSubflow(OpenSubflowAction action, IDispatcher dispatcher)
-    {
+        // Уже открыт во вкладке — просто переключаемся.
         if (state.Value.OpenDocuments.ContainsKey(action.Name))
         {
             dispatcher.Dispatch(new SwitchTabAction(action.Name));
-            return;
+            return Task.CompletedTask;
         }
 
-        var result = await api.GetAsync(action.Name);
-        if (result.IsSuccess && result.Value is not null)
+        // Есть в сессионном кэше (был открыт/импортирован ранее) — открываем его.
+        if (state.Value.SubflowCache.TryGetValue(action.Name, out var cached))
         {
-            dispatcher.Dispatch(new OpenWorkflowAction(result.Value));
-            return;
+            dispatcher.Dispatch(new OpenWorkflowAction(cached));
+            return Task.CompletedTask;
         }
 
-        // Любая ошибка (NotFound / NetworkError / ServerError) — открываем пустой draft с этим именем.
-        // Так пользователь всегда может «провалиться» в подпроцесс независимо от состояния сети.
+        // Иначе — пустой черновик с этим именем: пользователь всегда может «провалиться»
+        // в подпроцесс и наполнить его.
         dispatcher.Dispatch(new CreateWorkflowRequestedAction(action.Name));
+        return Task.CompletedTask;
     }
 
     [EffectMethod]

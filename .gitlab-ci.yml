@@ -1,0 +1,62 @@
+# GitLab CI/CD: тесты на .NET SDK + сборка Docker-образа через Kaniko
+# (Kaniko строит образ без privileged/DinD — работает на shared-раннерах GitLab.com).
+#
+# Образ пушится в GitLab Container Registry проекта ($CI_REGISTRY_IMAGE):
+#   <registry>/<group>/<project>:<short-sha>   — всегда
+#   <registry>/<group>/<project>:latest        — на дефолтной ветке
+#   <registry>/<group>/<project>:<tag>         — на git-теге
+#
+# Локально тот же Dockerfile собирается обычным:
+#   docker build -t workflow-editor .
+#   docker run --rm -p 8080:8080 workflow-editor   →  http://localhost:8080
+
+stages:
+  - test
+  - build
+
+variables:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+test:
+  stage: test
+  image: mcr.microsoft.com/dotnet/sdk:10.0
+  script:
+    - dotnet test WorkflowEditor.sln -c Release
+  cache:
+    key:
+      files:
+        - Directory.Packages.props
+    paths:
+      - .nuget/packages
+  variables:
+    NUGET_PACKAGES: "$CI_PROJECT_DIR/.nuget/packages"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+build-image:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  script:
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+    - |
+      DESTS="--destination ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHORT_SHA}"
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        DESTS="$DESTS --destination ${CI_REGISTRY_IMAGE}:latest"
+      fi
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        DESTS="$DESTS --destination ${CI_REGISTRY_IMAGE}:${CI_COMMIT_TAG}"
+      fi
+      /kaniko/executor \
+        --context "${CI_PROJECT_DIR}" \
+        --dockerfile "${CI_PROJECT_DIR}/Dockerfile" \
+        $DESTS
+  rules:
+    # Образ собираем на дефолтной ветке и на тегах (не на каждом MR).
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG

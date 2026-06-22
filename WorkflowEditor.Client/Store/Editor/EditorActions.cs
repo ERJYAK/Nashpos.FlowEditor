@@ -16,26 +16,11 @@ public sealed record RestoreClosedDocumentAction(string Name);
 // эффект делает черновой WorkflowDocument и открывает его.
 public sealed record CreateWorkflowRequestedAction(string Name);
 
-// Загрузка с сервера ------------------------------------------------------------
-public sealed record LoadWorkflowAction(string Name);
-public sealed record LoadWorkflowSuccessAction(WorkflowDocument Document);
-public sealed record LoadWorkflowFailedAction(string Name, string ErrorMessage);
-
-// Сохранение --------------------------------------------------------------------
-public sealed record SaveWorkflowAction(string Name);
-public sealed record SaveWorkflowSuccessAction(string Name);
-public sealed record SaveWorkflowFailedAction(string Name, string ErrorMessage);
-
 // Импорт JSON-файла (drag-drop / file-picker) -----------------------------------
 public sealed record ImportFileRequestedAction(string FileName, string Payload);
 public sealed record ImportFileFailedAction(string FileName, string ErrorMessage);
 
-// Lazy-fetch для отображения subflow внутри узла --------------------------------
-public sealed record LoadSubflowAction(string Name);
-public sealed record LoadSubflowSuccessAction(string Name, WorkflowDocument Document);
-public sealed record LoadSubflowFailedAction(string Name, string ErrorMessage);
-
-// Двойной клик по subflow-узлу: «попробуй загрузить, если нет — открой пустой черновик».
+// Двойной клик по subflow-узлу: открыть из сессионного кэша, иначе — пустой черновик.
 public sealed record OpenSubflowAction(string Name);
 
 // Мутации шагов -----------------------------------------------------------------

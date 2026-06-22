@@ -1,7 +1,7 @@
 @inherits FluxorComponent
 @* SubflowName/Description — из state по Node.StepId. Шаги subflow рендерятся всегда:
    приоритет — данные из OpenDocuments[name] (если subflow открыт во вкладке, свежее
-   всего), fallback — SubflowCache (после фонового fetch'а). *@
+   всего), fallback — SubflowCache (после открытия/импорта в этой сессии). *@
 
 <div @ondblclick="OpenSubflow" @ondblclick:stopPropagation="true">
 <MudPaper Elevation="4"
@@ -53,13 +53,6 @@
                     }
                 </MudList>
             }
-        }
-        else if (State.Value.LoadingSubflows.Contains(SubflowName))
-        {
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-                <MudText Typo="Typo.caption">Загрузка…</MudText>
-            </MudStack>
         }
         else
         {
@@ -117,26 +110,6 @@
         var name = State.Value.ActiveDocumentName;
         if (name is null || !State.Value.OpenDocuments.TryGetValue(name, out var editor)) return null;
         return editor.Document.Steps.OfType<T>().FirstOrDefault(s => s.Id == Node.StepId);
-    }
-
-    protected override void OnParametersSet()
-    {
-        base.OnParametersSet();
-        TryFetch();
-    }
-
-    // Идемпотентен: безопасно вызывать на каждый pere-render. Не дёргает API во время
-    // batch-импорта (импортируемые файлы могут заполнить кэш сами — нет смысла спекулировать).
-    private void TryFetch()
-    {
-        var name = SubflowName;
-        if (string.IsNullOrEmpty(name)) return;
-        if (State.Value.PendingImports > 0) return;
-        if (State.Value.OpenDocuments.ContainsKey(name)) return;
-        if (State.Value.SubflowCache.ContainsKey(name)) return;
-        if (State.Value.LoadingSubflows.Contains(name)) return;
-
-        Dispatcher.Dispatch(new LoadSubflowAction(name));
     }
 
     private void OpenSubflow()

@@ -1,0 +1,20 @@
+# Артефакты сборки (RID/OS хоста не должны попадать в образ)
+**/bin/
+**/obj/
+artifacts/
+publish/
+
+# VCS / IDE / CI
+.git/
+.gitignore
+.github/
+.idea/
+.vs/
+*.user
+*.suo
+
+# Docker / прочее
+Dockerfile
+.dockerignore
+**/*.md
+test-results/

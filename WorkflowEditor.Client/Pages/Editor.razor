@@ -42,12 +42,6 @@
                 <span>Сохранить файл</span>
             </MudStack>
         </MudMenuItem>
-        <MudMenuItem OnClick="SaveActiveToServer" Disabled="@(State.Value.ActiveDocumentName is null)">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                <MudIcon Icon="@Icons.Material.Filled.CloudUpload" Size="Size.Small" />
-                <span>Сохранить на сервер</span>
-            </MudStack>
-        </MudMenuItem>
         <MudMenuItem OnClick="OpenRestoreDialog" Disabled="@(VisibleClosedCount() == 0)">
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                 <MudIcon Icon="@Icons.Material.Filled.History" Size="Size.Small" />
@@ -378,12 +372,6 @@
         Dispatcher.Dispatch(new ClearInvalidStepsAction(name));
         var json = System.Text.Json.JsonSerializer.Serialize(editor.Document, JsonConfiguration.GetOptions());
         await Downloader.DownloadAsync($"{name}.json", json);
-    }
-
-    private void SaveActiveToServer()
-    {
-        var name = State.Value.ActiveDocumentName;
-        if (name is not null) Dispatcher.Dispatch(new SaveWorkflowAction(name));
     }
 
     private async Task CreateNewWorkflow()

@@ -2,7 +2,6 @@
 @implements IDisposable
 @inject IActionSubscriber Subscriber
 @inject ISnackbar Snackbar
-@inject IState<EditorState> EditorState
 @inject IJSRuntime JS
 
 <style>
@@ -74,21 +73,8 @@
     {
         _toggleThemeCallback = EventCallback.Factory.Create(this, ToggleTheme);
 
-        Subscriber.SubscribeToAction<LoadWorkflowFailedAction>(this,
-            a => Snackbar.Add($"Не удалось загрузить процесс: {a.ErrorMessage}", Severity.Error));
-        Subscriber.SubscribeToAction<SaveWorkflowFailedAction>(this,
-            a => Snackbar.Add($"Не удалось сохранить процесс: {a.ErrorMessage}", Severity.Error));
-        Subscriber.SubscribeToAction<SaveWorkflowSuccessAction>(this,
-            _ => Snackbar.Add("Сохранено", Severity.Success));
         Subscriber.SubscribeToAction<ImportFileFailedAction>(this,
             a => Snackbar.Add($"Не удалось загрузить файл «{a.FileName}»: {a.ErrorMessage}", Severity.Error));
-        Subscriber.SubscribeToAction<LoadSubflowFailedAction>(this, a =>
-        {
-            // Во время batch-импорта (drag-drop нескольких файлов) подавляем "subflow не найден":
-            // следующий файл из набора может оказаться искомым подпроцессом.
-            if (EditorState.Value.PendingImports > 0) return;
-            Snackbar.Add($"Подпроцесс «{a.Name}» не загружен: {a.ErrorMessage}", Severity.Warning);
-        });
         Subscriber.SubscribeToAction<RenameWorkflowFailedAction>(this,
             a => Snackbar.Add($"Не удалось переименовать: {a.ErrorMessage}", Severity.Error));
     }
