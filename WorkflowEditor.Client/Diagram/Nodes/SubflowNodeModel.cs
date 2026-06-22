@@ -9,6 +9,8 @@ public sealed class SubflowNodeModel : WorkflowNodeModel
 {
     public SubflowNodeModel(SubflowStep step, CanvasPosition position) : base(step, position)
     {
+        AddPort(PortAlignment.Top);
+        AddPort(PortAlignment.Bottom);
         AddPort(PortAlignment.Left);
         AddPort(PortAlignment.Right);
     }

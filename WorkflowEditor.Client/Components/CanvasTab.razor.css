@@ -45,3 +45,35 @@
 ::deep .port.right { top: 50%; right: -8px; transform: translateY(-50%); }
 ::deep .port.top { left: 50%; top: -8px; transform: translateX(-50%); }
 ::deep .port.bottom { left: 50%; bottom: -8px; transform: translateX(-50%); }
+
+/* =========================================
+   Карточки узлов: контрастный фон + рамка.
+   Surface MudBlazor совпадает с фоном канвы в обеих темах (тёмный на тёмном,
+   белый на белом) — без этого узлы почти не видно. Задаём фон явно по теме.
+   border-left оставляем 4px-цветным акцентом типа узла (см. ниже).
+   ========================================= */
+.canvas-wrapper.dark-theme ::deep .wf-node-card {
+    background-color: #2d3340 !important;
+    color: #e6e8ec;
+    border-top: 1px solid #4a5263;
+    border-right: 1px solid #4a5263;
+    border-bottom: 1px solid #4a5263;
+    border-left: 4px solid #4a5263;
+}
+.canvas-wrapper.light-theme ::deep .wf-node-card {
+    background-color: #ffffff !important;
+    color: #1f2430;
+    border-top: 1px solid #b9c0cd;
+    border-right: 1px solid #b9c0cd;
+    border-bottom: 1px solid #b9c0cd;
+    border-left: 4px solid #b9c0cd;
+}
+
+/* Цветной акцент слева различает типы узлов в любой теме. Селектор с двумя классами
+   на одном элементе уравнивает специфичность с правилом темы выше и идёт позже —
+   поэтому перекрывает только цвет левой рамки (ширину 4px берём из правила выше).
+   При выделении/невалидности border перекрывается !important-правилами .selected-node/
+   .invalid-node — это ожидаемо. */
+.canvas-wrapper ::deep .wf-node-card.wf-node-base    { border-left-color: #4caf50; } /* execute-step    */
+.canvas-wrapper ::deep .wf-node-card.wf-node-js      { border-left-color: #ff9800; } /* execute-js-script */
+.canvas-wrapper ::deep .wf-node-card.wf-node-subflow { border-left-color: #3267ff; } /* subflow         */

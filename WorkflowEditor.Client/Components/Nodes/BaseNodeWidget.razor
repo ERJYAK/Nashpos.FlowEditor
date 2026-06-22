@@ -34,7 +34,7 @@
     {
         get
         {
-            var classes = new List<string> { "pa-3" };
+            var classes = new List<string> { "pa-3", "wf-node-card", "wf-node-base" };
             if (Node.Selected) classes.Add("selected-node");
             var name = State.Value.ActiveDocumentName;
             if (name is not null && State.Value.InvalidStepsFor(name).Contains(Node.StepId))
