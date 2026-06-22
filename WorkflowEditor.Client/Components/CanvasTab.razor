@@ -1,26 +1,7 @@
 @inherits FluxorComponent
 @implements IDisposable
 
-<style>
-    .port {
-        width: 16px; height: 16px;
-        background-color: #3267ff;
-        border: 2px solid #1e1e1e;
-        border-radius: 50%;
-        position: absolute;
-        cursor: crosshair;
-        z-index: 10;
-        transition: transform 0.1s ease-in-out;
-    }
-    .port:hover { background-color: #ff4081; transform: scale(1.3); }
-    .port.left   { top: 50%; left:  -8px; transform: translateY(-50%); }
-    .port.right  { top: 50%; right: -8px; transform: translateY(-50%); }
-    .port.top    { left: 50%; top:    -8px; transform: translateX(-50%); }
-    .port.bottom { left: 50%; bottom: -8px; transform: translateX(-50%); }
-    .selected-node { border: 3px solid #3267ff !important; }
-</style>
-
-<div class="canvas-wrapper @(IsDarkMode ? "dark-theme" : "light-theme")" style="width: 100%; height: 100%;">
+<div class="canvas-wrapper @(IsDarkMode ? "dark-theme" : "light-theme")">
     <CascadingValue Value="Diagram">
         <DiagramCanvas></DiagramCanvas>
     </CascadingValue>

@@ -159,4 +159,3 @@ WorkflowEditor.Client/
 ## Известные ограничения / TODO
 
 - Персистентность между сессиями (сейчас всё в памяти; долговременно — только экспорт в файл).
-- CSS вынести в `*.razor.css` (CSS isolation), убрать `!important` и инлайн `<style>` в `MainLayout` / `CanvasTab`.

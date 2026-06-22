@@ -1,3 +1,13 @@
+/* Все стили холста живут здесь (CSS isolation). Узлы/порты/связи рендерятся дочерним
+   DiagramCanvas, поэтому до них достаём через `::deep` от собственного .canvas-wrapper.
+   Специфичности `.canvas-wrapper[scope] …` хватает, чтобы перекрыть стили движка и
+   MudBlazor без !important. */
+
+.canvas-wrapper {
+    width: 100%;
+    height: 100%;
+}
+
 /* Тёмная тема — фон #1e1e1e, тёмные grid-точки, светло-серые подписи на стрелках. */
 .canvas-wrapper.dark-theme {
     background-color: #1e1e1e;
@@ -21,39 +31,42 @@
 }
 
 /* =========================================
-   Контракт стилей для портов (Link Anchors)
+   Порты (link anchors)
+   Движок Z.Blazor.Diagrams рендерит <div class="diagram-port {alignment}">. У наших
+   кастомных узлов нет theme-класса .default-node, поэтому стили движка к ним не
+   применяются — задаём свои. Центрируем отрицательным margin (размер фиксирован),
+   чтобы transform остался свободен под hover-зум.
    ========================================= */
-::deep .port {
+.canvas-wrapper ::deep .diagram-port {
+    position: absolute;
+    box-sizing: border-box;
     width: 16px;
     height: 16px;
-    background-color: #3267ff; /* Primary цвет MudBlazor */
-    border: 2px solid #1e1e1e; /* Цвет фона подложки */
+    margin: 0;
+    background-color: #3267ff;     /* Primary */
+    border: 2px solid #ffffff;
     border-radius: 50%;
-    position: absolute;
     cursor: crosshair;
     z-index: 10;
-    transition: transform 0.1s ease-in-out;
+    transition: transform 0.1s ease-in-out, background-color 0.1s ease-in-out;
 }
-
-::deep .port:hover {
-    background-color: #ff4081; /* Secondary цвет для фокуса */
+.canvas-wrapper ::deep .diagram-port:hover {
+    background-color: #ff4081;     /* Secondary */
     transform: scale(1.3);
 }
-
-/* Строгое позиционирование в зависимости от Alignment */
-::deep .port.left { top: 50%; left: -8px; transform: translateY(-50%); }
-::deep .port.right { top: 50%; right: -8px; transform: translateY(-50%); }
-::deep .port.top { left: 50%; top: -8px; transform: translateX(-50%); }
-::deep .port.bottom { left: 50%; bottom: -8px; transform: translateX(-50%); }
+.canvas-wrapper ::deep .diagram-port.left   { top: 50%;  left: -8px;   margin-top: -8px; }
+.canvas-wrapper ::deep .diagram-port.right  { top: 50%;  right: -8px;  margin-top: -8px; }
+.canvas-wrapper ::deep .diagram-port.top    { left: 50%; top: -8px;    margin-left: -8px; }
+.canvas-wrapper ::deep .diagram-port.bottom { left: 50%; bottom: -8px; margin-left: -8px; }
 
 /* =========================================
    Карточки узлов: контрастный фон + рамка.
-   Surface MudBlazor совпадает с фоном канвы в обеих темах (тёмный на тёмном,
-   белый на белом) — без этого узлы почти не видно. Задаём фон явно по теме.
-   border-left оставляем 4px-цветным акцентом типа узла (см. ниже).
+   Surface MudBlazor совпадает с фоном канвы в обеих темах (тёмный на тёмном, белый на
+   белом) — без этого узлы почти не видно. Задаём фон явно по теме. border-left — 4px
+   цветной акцент типа узла (см. ниже).
    ========================================= */
 .canvas-wrapper.dark-theme ::deep .wf-node-card {
-    background-color: #2d3340 !important;
+    background-color: #2d3340;
     color: #e6e8ec;
     border-top: 1px solid #4a5263;
     border-right: 1px solid #4a5263;
@@ -61,7 +74,7 @@
     border-left: 4px solid #4a5263;
 }
 .canvas-wrapper.light-theme ::deep .wf-node-card {
-    background-color: #ffffff !important;
+    background-color: #ffffff;
     color: #1f2430;
     border-top: 1px solid #b9c0cd;
     border-right: 1px solid #b9c0cd;
@@ -69,11 +82,16 @@
     border-left: 4px solid #b9c0cd;
 }
 
-/* Цветной акцент слева различает типы узлов в любой теме. Селектор с двумя классами
-   на одном элементе уравнивает специфичность с правилом темы выше и идёт позже —
-   поэтому перекрывает только цвет левой рамки (ширину 4px берём из правила выше).
-   При выделении/невалидности border перекрывается !important-правилами .selected-node/
-   .invalid-node — это ожидаемо. */
-.canvas-wrapper ::deep .wf-node-card.wf-node-base    { border-left-color: #4caf50; } /* execute-step    */
+/* Цветной акцент слева различает типы узлов в любой теме. Два класса на элементе дают
+   ту же специфичность, что и правило темы выше, но идут позже — перекрывают только
+   цвет левой рамки (ширину 4px берём из правила выше). */
+.canvas-wrapper ::deep .wf-node-card.wf-node-base    { border-left-color: #4caf50; } /* execute-step      */
 .canvas-wrapper ::deep .wf-node-card.wf-node-js      { border-left-color: #ff9800; } /* execute-js-script */
-.canvas-wrapper ::deep .wf-node-card.wf-node-subflow { border-left-color: #3267ff; } /* subflow         */
+.canvas-wrapper ::deep .wf-node-card.wf-node-subflow { border-left-color: #3267ff; } /* subflow           */
+
+/* Невалидность (после провальной валидации экспорта) и выделение перекрывают рамку
+   карточки. Те же два класса на элементе → та же специфичность, что у правил выше, но
+   идут позже, поэтому побеждают без !important. selected — последним: при одновременном
+   выделении+невалидности видно именно выделение. */
+.canvas-wrapper ::deep .wf-node-card.invalid-node  { border: 3px solid #ff4444; }
+.canvas-wrapper ::deep .wf-node-card.selected-node { border: 3px solid #3267ff; }
